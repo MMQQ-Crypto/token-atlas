@@ -78,9 +78,17 @@ function renderTrend(selected, models) {
   $('#trend-chart').innerHTML=`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="每日各模型 Token 趋势">${svg}</svg>`;
 }
 function renderDistribution(summary) {
-  const total=summary.totals.total,radius=77,circ=2*Math.PI*radius;
+  const total=summary.totals.total,radius=77;
   let offset=0;
-  const arcs=summary.models.map(m=>{const length=m.total/(total||1)*circ;const segment=`<circle cx="100" cy="100" r="${radius}" fill="none" stroke="${m.color}" stroke-width="27" stroke-dasharray="${Math.max(0,length-2)} ${circ-Math.max(0,length-2)}" stroke-dashoffset="${-offset}" data-tooltip="${escape(m.name+'\n'+exact(m.total)+' tokens')}"/>`;offset+=length;return segment;}).join('');
+  const arcs=summary.models.map(m=>{
+    const angle=m.total/(total||1)*2*Math.PI,gap=summary.models.length===1?0:Math.min(2/radius,angle*.15);
+    const start=offset+gap/2,span=angle-gap,point=a=>`${100+radius*Math.cos(a)},${100+radius*Math.sin(a)}`;
+    // Separate arc paths keep hit areas on their own colors, including a full ring.
+    const d=`M${point(start)} A${radius},${radius} 0 0 1 ${point(start+span/2)} A${radius},${radius} 0 0 1 ${point(start+span)}`;
+    const tip=`${m.name}\n${providerName(providerFor(m.name,m.providerHint))} · ${NAMES[m.source]||m.source}\n${exact(m.total)} tokens · 占比 ${(m.total/(total||1)*100).toFixed(1)}%\n非缓存输入：${exact(m.input)}\n输出：${exact(m.output)}\n缓存读取：${exact(m.cacheRead)}\n缓存写入：${exact(m.cacheWrite)}\n用量记录：${exact(m.count)} 条`;
+    const segment=`<path class="donut-segment" d="${d}" fill="none" stroke="${m.color}" stroke-width="27" tabindex="0" role="img" aria-label="${escape(tip)}" data-tooltip="${escape(tip)}"/>`;
+    offset+=angle;return segment;
+  }).join('');
   $('#donut').innerHTML=`<svg viewBox="0 0 200 200" role="img" aria-label="模型 Token 占比"><circle cx="100" cy="100" r="${radius}" fill="none" stroke="#303033" stroke-width="27"/>${arcs}</svg><div class="donut-center"><strong>${total?escape(compact(total)):'—'}</strong><span>${total?'tokens':'暂无记录'}</span></div>`;
   $('#model-list').innerHTML=summary.models.length?summary.models.map(m=>`<div class="model-item"><i class="color-dot" style="background:${m.color}"></i><div><div class="model-name">${escape(m.name)}</div><div class="model-meta">${escape(providerName(providerFor(m.name,m.providerHint)))} · ${escape(NAMES[m.source])}</div><div class="model-meta">${escape(compact(m.total))} tokens</div></div><span class="model-share">${(m.total/total*100).toFixed(1)}%</span></div>`).join(''):'<p class="muted">读取到用量后，这里会显示模型分布。</p>';
   const fields=[['input','非缓存输入',COLORS[0]],['output','输出',COLORS[1]],['cacheRead','缓存读取',COLORS[2]],['cacheWrite','缓存写入',COLORS[3]]];
@@ -107,12 +115,16 @@ function renderSources() {
   $('#source-count').textContent=visible.length;
 }
 function render() {
+  $('#tooltip').hidden=true;
   const vendorRecords=records().filter(r=>matchesProvider(r,provider));
   const all=vendorRecords.filter(r=>!source||r.source===source), selected=selectRecords(vendorRecords,source,days), summary=aggregate(selected);
   renderStats(selected);renderApplications();renderHeatmap(all);renderTrend(selected,summary.models);renderDistribution(summary);renderModels(selected);renderSources();
   $('#demo-banner').hidden=!demo;
   $('#export').disabled=demo||busy;
   $('#audit-open').disabled=demo||busy;
+  const backLabel=page==='sources'?'返回用量总览':page==='models'?(source?'返回应用用量':'返回全局总览'):source?'返回全部应用':'返回全局总览';
+  $('#nav-back').disabled=page==='overview'&&!source&&!provider;
+  $('#nav-back').setAttribute('aria-label',backLabel);$('#nav-back').title=backLabel;
   $('#range-caption').textContent=days?`${dayKey(dayOffset(new Date(),1-days))} — ${dayKey(new Date())}`:'全部历史记录';
   const present=applicationUsage(snapshot.sources,records()).map(a=>a.id);
   $('#source-filter').innerHTML='<option value="">全部应用</option>'+present.map(id=>`<option value="${id}" ${source===id?'selected':''}>${escape(NAMES[id]||id)}</option>`).join('');
@@ -139,6 +151,11 @@ async function saveSettings() {
 function setPage(next){page=next;for(const p of ['overview','models','sources'])$(`#${p}-page`).hidden=p!==next;$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));$('#page-title').textContent=next==='sources'?'连接你的 Agent 应用。':next==='models'?'查看模型用量。':source?(NAMES[source]||source)+' 用量':'所有 Agent，尽在一处。';$('#page-subtitle').textContent=next==='sources'?'只显示已检测到的应用；统计范围为本机及已导入记录。':next==='models'?'沿用已选择的应用、供应商和时间范围。':source?'查看这个应用的供应商、模型与 Token 构成。':'自动识别本机应用，汇总真实 Token 与模型使用情况。';}
 $$('[data-page]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.page==='overview'){source='';provider='';}setPage(b.dataset.page);render();}));
 $('.brand').addEventListener('click',e=>{e.preventDefault();source='';provider='';setPage('overview');render();});
+$('#nav-back').addEventListener('click',()=>{
+  if(page==='models')provider='';
+  else if(page!=='sources'){source='';provider='';}
+  hiddenModels.clear();setPage('overview');render();window.scrollTo({top:0});
+});
 $('#application-list').addEventListener('click',e=>{const b=e.target.closest('[data-application]');if(!b)return;source=b.dataset.application;provider='';hiddenModels.clear();setPage('overview');render();window.scrollTo({top:0});});
 $('#application-back').addEventListener('click',()=>{source='';provider='';setPage('overview');render();});
 $('#domestic-platforms').addEventListener('click',e=>{const b=e.target.closest('[data-provider-card]');if(!b)return;provider=b.dataset.providerCard;hiddenModels.clear();setPage('models');render();window.scrollTo({top:0});});
@@ -207,6 +224,7 @@ document.addEventListener('pointermove',e=>{const target=e.target.closest('[data
 document.addEventListener('focusin',e=>{const target=e.target.closest('[data-tooltip]');if(target){const rect=target.getBoundingClientRect();showTip(target,rect.x,rect.bottom);}});
 document.addEventListener('focusout',()=>tooltip.hidden=true);
 document.addEventListener('pointerleave',()=>tooltip.hidden=true);
+window.addEventListener('scroll',()=>tooltip.hidden=true,{passive:true});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')tooltip.hidden=true;});
 $('#today-label').textContent=new Date().toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
 render();

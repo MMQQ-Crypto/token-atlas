@@ -13,6 +13,23 @@ async function main(){
   await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>document.querySelector('#sync-status').textContent.includes('条用量记录'));
   const stat=()=>page.locator('.stat-value').first().innerText();
   assert.equal(await page.locator('.application-card').count(),2);assert.equal(await page.locator('[data-application="claude"]').count(),0);assert.equal(await stat(),'1,600');
+  assert.equal(await page.locator('#nav-back').isDisabled(),true);
+  async function hoverRing(angle){
+    await page.locator('#donut').scrollIntoViewIfNeeded();const b=await page.locator('#donut').boundingBox(),r=b.width*77/200;
+    await page.mouse.move(b.x+b.width/2+r*Math.cos(angle-Math.PI/2),b.y+b.height/2+r*Math.sin(angle-Math.PI/2));
+  }
+  let offset=0;
+  for(const [model,total,share] of [['glm-5.3',1000,'62.5'],['claude-sonnet-4',500,'31.3'],['gpt-fixture',100,'6.3']]){
+    await hoverRing((offset+total/2)/1600*2*Math.PI);const tip=await page.locator('#tooltip').innerText();
+    assert.equal(await page.locator('#tooltip').isVisible(),true);assert.ok(tip.includes(model),tip);assert.ok(tip.includes(total.toLocaleString('zh-CN')+' tokens'));assert.ok(tip.includes('占比 '+share+'%'));assert.ok(tip.includes('缓存读取：0'));offset+=total;
+  }
+  await page.screenshot({path:path.join(output,'donut-hover.png')});
+  const hole=await page.locator('#donut').boundingBox();await page.mouse.move(hole.x+hole.width/2,hole.y+hole.height/2);assert.equal(await page.locator('#tooltip').isHidden(),true);
+  await page.locator('.donut-segment').first().focus();assert.equal(await page.locator('#tooltip').isVisible(),true);
+  await page.locator('[data-application="codex"]').click();
+  assert.equal(await page.locator('.donut-segment').count(),1);
+  for(const angle of [0,Math.PI/2,Math.PI,Math.PI*1.5]){await hoverRing(angle);assert.ok((await page.locator('#tooltip').innerText()).includes('100 tokens · 占比 100.0%'));}
+  await page.locator('#nav-back').click();assert.equal(await stat(),'1,600');assert.equal(await page.locator('#nav-back').isDisabled(),true);
   assert.ok((await page.locator('[data-application="zcode"]').innerText()).includes('7,500'));
   await page.screenshot({path:path.join(output,'applications-overview.png'),fullPage:true});
   await page.locator('[data-application="zcode"]').click();assert.ok((await page.locator('#page-title').innerText()).includes('ZCode'));assert.equal(await stat(),'1,500');assert.equal(await page.locator('.provider-card').count(),2);
@@ -21,17 +38,19 @@ async function main(){
   await page.locator('[data-days="30"]').click();assert.ok((await page.locator('#model-table').innerText()).includes('3,000'));await page.locator('#export').click();assert.equal(await page.evaluate(()=>window.lastExportFilter.source),'zcode');assert.equal(await page.evaluate(()=>window.lastExportFilter.provider),'zhipu');
   await page.locator('#audit-open').click();assert.ok((await page.locator('#audit-scope').innerText()).includes('智谱 GLM'));
   const audit=await page.locator('#audit-detail').innerText();assert.ok(audit.includes('当前筛选：2 条记录 / 3,000 tokens'));assert.ok(audit.includes('累计可读记录：7,000 tokens'));await page.locator('#audit-close').click();
-  await page.locator('#application-back').click();assert.equal(await stat(),'3,800');
+  await page.locator('#nav-back').click();assert.equal(await page.locator('#source-filter').inputValue(),'zcode');assert.equal(await page.locator('#provider-filter').inputValue(),'');assert.equal(await page.locator('#overview-page').isVisible(),true);assert.equal(await stat(),'3,500');
+  await page.locator('#nav-back').click();assert.equal(await stat(),'3,800');assert.equal(await page.locator('#nav-back').isDisabled(),true);
   for(const [days,total] of [['1','1,100'],['7','1,600'],['30','3,800'],['0','8,100']]){await page.locator('[data-days="'+days+'"]').click();assert.equal(await stat(),total);}
   await page.locator('#provider-region [data-region="foreign"]').click();assert.equal(await page.locator('.provider-card').count(),2);assert.equal(await page.locator('[data-provider-card="zhipu"]').count(),0);await page.locator('#provider-region [data-region="all"]').click();
   await page.locator('[data-page="sources"]').click();assert.equal(await page.locator('.source-card').count(),2);
   await page.locator('#capture-toggle').click();assert.ok((await page.locator('#capture-state').innerText()).includes('采集中'));await page.locator('#capture-toggle').click();
-  await page.locator('[data-page="overview"]').click();await page.locator('#updates-open').click();assert.ok((await page.locator('#updates-detail').innerText()).includes('403'));await page.locator('#updates-release').click();assert.equal(await page.evaluate(()=>window.releaseOpened),true);
+  await page.locator('#nav-back').click();assert.equal(await page.locator('#overview-page').isVisible(),true);await page.locator('#updates-open').click();assert.ok((await page.locator('#updates-detail').innerText()).includes('403'));await page.locator('#updates-release').click();assert.equal(await page.evaluate(()=>window.releaseOpened),true);
   await page.evaluate(()=>{const s={currentVersion:'1.4.0',availableVersion:'1.5.0',notes:'Fixture',progress:0,error:'',canInstall:true};window.tokenAtlas.checkUpdate=async()=>({...s,status:'available'});window.tokenAtlas.downloadUpdate=async()=>({...s,status:'ready',progress:100});});
   await page.locator('#updates-check').click();assert.ok((await page.locator('#updates-message').innerText()).includes('1.5.0'));await page.locator('#updates-download').click();assert.equal(await page.locator('#updates-install').isEnabled(),true);await page.locator('#updates-close').click();
   await page.locator('#demo').click();assert.equal(await page.locator('#demo-banner').isVisible(),true);assert.equal(await page.locator('#export').isDisabled(),true);await page.locator('#exit-demo').click();
   await page.setViewportSize({width:960,height:800});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'applications-compact.png'),fullPage:true});
-  assert.deepEqual(errors,[]);console.log('PASS: detected apps only; today/7/30/lifetime exact totals; app > supplier > model drilldown; scoped CSV export; foreign providers; update error recovery and release link; 960px layout.');
+  await page.evaluate(()=>{window.tokenAtlas.scan=async()=>({records:[],sources:[],updatedAt:new Date().toISOString()});});await page.locator('#refresh').click();assert.equal(await page.locator('.donut-segment').count(),0);assert.equal(await page.locator('#tooltip').isHidden(),true);
+  assert.deepEqual(errors,[]);console.log('PASS: parent navigation button; each donut color, single full ring, center and keyboard focus; exact date/scoped totals and audit; export; update interaction; empty chart; 960px layout.');
  }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
