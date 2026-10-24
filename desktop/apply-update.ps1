@@ -12,6 +12,7 @@ $replacedFile = $false
 $backupMade = $false
 try {
   if ((Get-FileHash -LiteralPath $downloadFile -Algorithm SHA256).Hash -ne $updateSettings.sha256) { throw 'SHA256 mismatch' }
+  @{pid=$PID;status='ready'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $updateDirectory 'helper-ready.json') -Encoding UTF8
   $waitUntil = [DateTime]::UtcNow.AddSeconds(60)
   while (Get-Process -Id $updateSettings.processToWait -ErrorAction SilentlyContinue) {
     if ([DateTime]::UtcNow -gt $waitUntil) { throw 'Application did not exit' }

@@ -62,10 +62,28 @@ class Updater{
     const target=path.resolve(this.portableFile);
     if(!path.isAbsolute(this.portableFile)||path.extname(target).toLowerCase()!=='.exe')throw new Error('无法确认当前免安装程序的位置');
     const helper=path.join(this.directory,'apply-update.ps1'),settings=path.join(this.directory,'apply-update.json');
+    const launcher=path.join(this.directory,'launch-update.ps1'),readyFile=path.join(this.directory,'helper-ready.json'),launchedFile=path.join(this.directory,'helper-launched.json');
     await fs.copyFile(path.join(__dirname,'apply-update.ps1'),helper);
+    await fs.copyFile(path.join(__dirname,'launch-update.ps1'),launcher);
+    await fs.rm(readyFile,{force:true});
+    await fs.rm(launchedFile,{force:true});
     await fs.writeFile(settings,JSON.stringify({appId:config.appId,processToWait:process.pid,target,downloaded:this.downloaded,sha256:this.manifest.sha256,version:this.manifest.version,result:path.join(this.directory,'update-result.json')}));
-    const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',helper,'-ConfigFile',settings],{detached:true,stdio:'ignore',windowsHide:true});
-    await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});child.unref();this.set({status:'installing'});this.quit();return this.status();
+    // DETACHED_PROCESS can make Windows PowerShell exit without running -File.
+    // Wait for its startup acknowledgment before closing Electron, and retain logs.
+    const log=await fs.open(path.join(this.directory,'apply-update.log'),'a');let child;
+    this.set({status:'installing',error:''});
+    try{
+      child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',launcher,'-ConfigFile',settings],{stdio:['ignore',log.fd,log.fd],windowsHide:true});
+      await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});
+      const deadline=Date.now()+15000;
+      while(true){
+        let ready,launched;try{ready=JSON.parse((await fs.readFile(readyFile,'utf8')).replace(/^\uFEFF/,''));launched=JSON.parse((await fs.readFile(launchedFile,'utf8')).replace(/^\uFEFF/,''));}catch{}
+        if(launched?.pid&&ready?.pid===launched.pid&&ready.status==='ready')break;
+        if((child.exitCode!==null&&child.exitCode!==0)||Date.now()>deadline)throw new Error('更新助手未能启动，请打开发布页手动下载；诊断信息已保存在 updates/apply-update.log');
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      child.unref();await log.close();this.quit();return this.status();
+    }catch(e){child?.unref();await log.close().catch(()=>{});this.set({status:'ready',error:e.message});throw e;}
   }
 }
 module.exports={Updater,compareVersions,validateManifest};

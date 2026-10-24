@@ -27,7 +27,11 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           node node_modules/electron/install.js
       - name: Test
-        run: pnpm test
+        run: |
+          pnpm test
+          if ($LASTEXITCODE -ne 0) { throw 'Node tests failed' }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/test-update-helper.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Windows update lifecycle check failed' }
       - name: Build Windows portable application
         run: pnpm exec electron-builder --win portable --x64 --publish never
       - name: Prepare update manifest and extension
