@@ -1,0 +1,14 @@
+{
+  "manifest_version":3,
+  "name":"Token Atlas 真实用量采集",
+  "version":"1.0.0",
+  "description":"仅采集国内 AI 网页响应中明确返回的 usage 元数据，不估算、不保存对话。",
+  "permissions":["storage","alarms"],
+  "host_permissions":["http://127.0.0.1/*"],
+  "background":{"service_worker":"background.js"},
+  "action":{"default_popup":"popup.html"},
+  "content_scripts":[
+    {"matches":["https://chat.deepseek.com/*","https://www.doubao.com/*","https://doubao.com/*","https://www.kimi.com/*","https://kimi.com/*","https://kimi.moonshot.cn/*","https://www.qianwen.com/*","https://qianwen.com/*","https://tongyi.aliyun.com/*","https://chat.qwen.ai/*","https://chatglm.cn/*","https://www.chatglm.cn/*","https://yiyan.baidu.com/*","https://yuanbao.tencent.com/*","https://xinghuo.xfyun.cn/*"],"js":["usage.js","network.js"],"run_at":"document_start","world":"MAIN"},
+    {"matches":["https://chat.deepseek.com/*","https://www.doubao.com/*","https://doubao.com/*","https://www.kimi.com/*","https://kimi.com/*","https://kimi.moonshot.cn/*","https://www.qianwen.com/*","https://qianwen.com/*","https://tongyi.aliyun.com/*","https://chat.qwen.ai/*","https://chatglm.cn/*","https://www.chatglm.cn/*","https://yiyan.baidu.com/*","https://yuanbao.tencent.com/*","https://xinghuo.xfyun.cn/*"],"js":["content.js"],"run_at":"document_start"}
+  ]
+}

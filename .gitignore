@@ -1,0 +1,9 @@
+node_modules/
+release/
+.test-output/
+*.log
+.pnpm-store/
+.electron-cache/
+.builder-cache/
+.publish/
+.upload-manifest.json

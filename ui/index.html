@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>Token Atlas · AI 用量统计</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="#overview" aria-label="Token Atlas 首页"><span class="brand-icon">▥</span><span>Token Atlas<small>AI 用量统计</small></span></a>
+    <nav aria-label="主导航"><button data-page="overview" class="nav active">用量概览</button><button data-page="models" class="nav">模型明细</button><button data-page="sources" class="nav">数据来源<span id="source-count" class="count">0</span></button></nav>
+    <span class="local-badge"><i></i>用量仅本机处理</span><button id="updates-open" class="button update-trigger">检查更新</button>
+  </header>
+  <main>
+    <div class="page-heading"><div><div class="date-line" id="today-label"></div><h1 id="page-title">每一次使用，都有迹可循。</h1><p id="page-subtitle">把分散在不同 AI 工具中的 Token，汇集在一处。</p></div><div class="heading-actions"><button id="demo" class="button subtle">查看示例</button><button id="export" class="button">↓ 导出记录</button><button id="refresh" class="button primary"><span id="refresh-icon">↻</span> 刷新数据</button></div></div>
+    <div id="notice" role="status" hidden></div>
+    <div id="demo-banner" class="demo-banner" hidden><span>正在查看示例数据 · 这些数值不代表你的实际用量</span><button id="exit-demo">返回真实数据 ×</button></div>
+    <div id="overview-page" class="page">
+      <section class="stats" aria-label="累计用量汇总" id="stats"></section>
+      <section class="panel activity-panel"><div class="section-heading"><h2>Token 活动<span class="small-label">过去一年</span></h2><div class="segmented" id="activity-mode"><button data-mode="daily" class="selected">每日</button><button data-mode="weekly">每周</button><button data-mode="cumulative">累计</button></div></div><div class="activity-scroll"><div id="heatmap" class="heatmap"></div></div><div class="activity-footer"><span id="activity-summary"></span><div class="heat-legend">较少 <i></i><i></i><i></i><i></i><i></i> 较多</div></div></section>
+      <div class="range-bar"><div class="range-heading"><h2>用量分析</h2><span id="range-caption"></span></div><div class="range-controls"><select id="provider-filter" aria-label="筛选模型厂商"></select><select id="source-filter" aria-label="筛选工具"><option value="">全部工具</option></select><div class="segmented" id="range"><button data-days="7" class="selected">近 7 日</button><button data-days="30">近 30 日</button><button data-days="90">近 90 日</button><button data-days="0">全部</button></div></div></div>
+      <p id="provider-empty" class="provider-empty" hidden></p>
+      <section class="panel trend-panel"><div class="section-heading"><h2>每日 Token 趋势图</h2><span id="trend-total" class="muted"></span></div><div id="chart-legend" class="chart-legend"></div><div id="trend-chart" class="trend-chart"></div><p class="chart-note">含缓存读取与写入；点击图例可隐藏或显示模型。</p></section>
+      <div class="bottom-grid"><section class="panel distribution-panel"><div class="section-heading"><h2>模型用量</h2><span class="muted">按 Token 占比</span></div><div class="distribution"><div id="donut" class="donut"></div><div id="model-list" class="model-list"></div></div></section><section class="panel breakdown-panel"><div class="section-heading"><h2>Token 构成</h2><span class="small-label">统一统计口径</span></div><div id="breakdown"></div><div class="info-note">输入、输出、缓存分别统计。Codex 输入中的缓存只计一次，推理 Token 已包含在输出中。</div></section></div>
+    </div>
+    <div id="models-page" class="page" hidden><section class="panel"><div class="section-heading"><h2>模型明细</h2><span class="muted">全部历史记录</span></div><div class="table-scroll"><table><thead><tr><th>模型 / 工具</th><th>请求记录</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody id="model-table"></tbody></table></div></section><p class="help-copy">“请求记录”指日志中有效的用量条目，可能包含工具调用和子代理请求；未知模型表示原始记录未提供模型名。</p></div>
+    <div id="sources-page" class="page" hidden>
+      <section class="panel capture-panel"><div class="section-heading"><h2>采集真实用量</h2><span id="capture-state" class="muted">网页采集未启动</span></div><p>DeepSeek Harness 的本地压缩日志会自动读取。其他国内网页可通过扩展采集响应中的 usage；已有网络响应记录可直接导入。</p><div class="capture-actions"><button id="capture-toggle" class="button primary">启动网页采集</button><button id="capture-copy" class="button">复制配对码</button><button id="capture-extension" class="button">打开扩展文件夹</button><button id="capture-import" class="button">导入 JSON / JSONL / HAR</button></div><label class="capture-address">本机采集地址<input id="capture-url" readonly value="http://127.0.0.1:46137"></label><details class="capture-help"><summary>如何连接网页采集</summary><ol><li>点击“启动网页采集”，再点击“打开扩展文件夹”。</li><li>打开 Edge 或 Chrome 的扩展管理页面，开启“开发人员模式”，选择“加载解压缩的扩展”，加载该文件夹。</li><li>打开扩展，填入上方地址，粘贴配对码，勾选启用并连接。每次重启桌面应用需重新配对。</li><li>刷新国内 AI 聊天网页后正常使用。只记录服务端明确返回的 usage，不保存对话正文；扩展会显示多少响应含有真实用量。</li></ol><p>只支持可读取的 Fetch / XHR JSON 或 SSE 响应。隐藏用量、加密响应和 WebSocket 无法还原，未获得的数据不会计数。导入 HAR 时，使用浏览器开发者工具“网络”面板保存带响应正文的 HAR 文件；原始 HAR 可能包含敏感信息，请只保存在本机，不要对外发送。</p></details></section>
+      <section class="panel domestic-panel"><div class="section-heading"><h2>国内 AI 真实用量</h2><span class="truth-badge">只统计服务端 usage</span></div><p class="domestic-intro">汇总本地桌面日志、网页响应采集与导入记录中的真实 Token。DeepSeek Harness 的调用可自动统计，包括日志中的豆包等模型。网页只有返回明确 usage 时才会计数。</p><div id="domestic-platforms" class="domestic-grid"></div><p class="help-copy">厂商按模型名称或响应所属的官方网页识别，不代表实际付费平台。没有记录表示尚未采集到数据，不表示没有使用；不估算隐藏推理、上下文长度或账单额度。</p></section>
+      <section class="panel settings-panel"><div><h2>自动刷新</h2><p>每 60 秒读取更新的本地记录，应用打开时生效。新采集的网页记录会即时刷新。</p></div><label class="switch"><input id="auto-refresh" type="checkbox" checked><span></span><span class="sr-only">启用自动刷新</span></label></section><div id="sources-list"></div><div class="info-note source-note">应用不修改原始日志，不上传本地记录。来自多个通道的同一次调用可能重复，分析时可按工具筛选。网页和导入记录按响应标识去重；Cookie、密钥和聊天正文不会保存到采集记录。</div>
+    </div>
+    <footer><span><i class="status-dot"></i><span id="sync-status">正在读取本地用量记录…</span></span><span>Token Atlas <span id="app-version">1.4.0</span> <span class="footer-divider">/</span> Windows 桌面版</span></footer>
+  </main>
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="updates-dialog" class="updates-dialog"><div class="section-heading"><h2>应用更新</h2><button id="updates-close" class="dialog-close" aria-label="关闭更新窗口">×</button></div><p id="updates-current">当前版本 1.4.0</p><h3 id="updates-message">检查是否有新版本</h3><p id="updates-detail"></p><pre id="updates-notes"></pre><progress id="updates-progress" max="100" value="0" hidden></progress><p class="update-privacy">只从 GitHub 检查和下载本应用更新，不发送你的用量、对话或配置。</p><div class="update-actions"><button id="updates-check" class="button">重新检查</button><button id="updates-download" class="button primary" hidden>下载更新</button><button id="updates-install" class="button primary" hidden>更新并重启</button></div></dialog>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
