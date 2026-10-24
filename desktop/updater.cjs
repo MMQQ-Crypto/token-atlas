@@ -3,7 +3,7 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
 const config=require('./update-config.json');
-const versionParts=value=>{const m=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);if(!m)throw new Error('无效的正式版本号');return m.slice(1).map(Number);};
+const versionParts=value=>{const m=typeof value==='string'&&/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);if(!m)throw new Error('无效的正式版本号');return m.slice(1).map(Number);};
 function compareVersions(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]>y[i]?1:-1;return 0;}
 function validateManifest(manifest,tag){
   if(!manifest||manifest.appId!==config.appId||manifest.platform!=='win32-x64')throw new Error('更新包不属于 Token Atlas Windows 版');
@@ -22,26 +22,23 @@ class Updater{
   status(){return {...this.state};}
   set(next){this.state={...this.state,...next};this.onChange(this.status());return this.status();}
   async request(url,timeout=20000){
-    const response=await this.fetchImpl(url,{headers:{'User-Agent':`Token-Atlas/${this.version}`,Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(timeout),redirect:'follow'});
-    if(!response.ok)throw new Error(response.status===403||response.status===429?'GitHub 请求受限，请稍后重试':`GitHub 访问失败（${response.status}）`);
+    const response=await this.fetchImpl(url,{headers:{'User-Agent':`Token-Atlas/${this.version}`,Accept:'application/json, application/octet-stream'},signal:AbortSignal.timeout(timeout),redirect:'follow',credentials:'omit',cache:'no-store'});
+    if(!response.ok){const error=new Error(response.status===403?'GitHub 拒绝访问（403），请稍后重试或打开发布页':response.status===429?'GitHub 访问过于频繁，请稍后重试或打开发布页':`GitHub 访问失败（${response.status}），可打开发布页手动下载`);error.status=response.status;throw error;}
     return response;
   }
   async check(){
     if(['checking','downloading','installing'].includes(this.state.status))return this.status();
-    this.set({status:'checking',error:''});
+    this.manifest=null;this.downloaded=null;
+    this.set({status:'checking',availableVersion:null,notes:'',progress:0,error:''});
     try{
-      const response=await this.request(`https://api.github.com/repos/${config.repository}/releases?per_page=100`);
-      const releases=await response.json();if(!Array.isArray(releases))throw new Error('GitHub 返回了无效发布列表');
-      const candidates=releases.filter(r=>!r.draft&&!r.prerelease&&typeof r.tag_name==='string'&&r.tag_name.startsWith(config.tagPrefix)&&/^\d+\.\d+\.\d+$/.test(r.tag_name.slice(config.tagPrefix.length))).sort((a,b)=>compareVersions(b.tag_name.slice(config.tagPrefix.length),a.tag_name.slice(config.tagPrefix.length)));
-      if(!candidates.length)return this.set({status:'unpublished',availableVersion:null,notes:'尚未发布 Token Atlas 更新',progress:0});
-      const latest=candidates[0],version=latest.tag_name.slice(config.tagPrefix.length);
+      // The public latest-release asset avoids the shared unauthenticated REST API quota.
+      const response=await this.request(`https://github.com/${config.repository}/releases/latest/download/${config.manifestAsset}`);
+      let raw;try{raw=await response.json();}catch{throw new Error('更新清单不是有效 JSON，可打开发布页手动下载');}
+      const manifest=validateManifest(raw,config.tagPrefix+raw?.version),version=manifest.version;
       if(compareVersions(version,this.version)<=0)return this.set({status:'current',availableVersion:null,notes:'当前已是最新版本',progress:0});
-      const asset=latest.assets?.find(a=>a.name===config.manifestAsset);
-      const expected=`https://github.com/${config.repository}/releases/download/${latest.tag_name}/${config.manifestAsset}`;
-      if(!asset||asset.browser_download_url!==expected)throw new Error('新版尚未提供有效的更新清单');
-      const raw=await this.request(expected);this.manifest=validateManifest(await raw.json(),latest.tag_name);
+      this.manifest=manifest;
       return this.set({status:'available',availableVersion:version,notes:this.manifest.notes,progress:0});
-    }catch(e){return this.set({status:'error',error:e.message});}
+    }catch(e){if(e.status===404)return this.set({status:'unpublished',notes:'尚未提供可用的 Token Atlas 更新清单，可打开发布页查看'});return this.set({status:'error',error:e.name==='TimeoutError'?'连接 GitHub 超时，请重试或打开发布页':e.message});}
   }
   async download(){
     if(this.state.status==='downloading')return this.status();

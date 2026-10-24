@@ -52,6 +52,29 @@ test('Streaming response parser handles split SSE and ignores DONE and text-only
   for(let i=0;i<data.length;i+=7)parser.push(data.slice(i,i+7));parser.end();
   assert.equal(records.length,1);assert.equal(records[0].total,120);assert.ok(!JSON.stringify(records).includes('PRIVATE'));
 });
+
+test('Gemini usageMetadata: exact cached, thinking and tool-use counts; missing counters are not inferred',()=>{
+  const metadata={promptTokenCount:100,candidatesTokenCount:20,cachedContentTokenCount:70,thoughtsTokenCount:30,toolUsePromptTokenCount:5,totalTokenCount:155};
+  assert.deepEqual(normalize(metadata),{input:35,output:50,cacheRead:70,cacheWrite:0,total:155});
+  assert.equal(normalize({...metadata,totalTokenCount:150}),null);assert.equal(normalize({...metadata,cachedContentTokenCount:101}),null);
+  assert.equal(normalize({...metadata,estimated:true}),null);assert.equal(normalize({promptTokenCount:100,totalTokenCount:150}),null);
+  const response={responseId:'gemini-response',modelVersion:'gemini-2.5-pro',usageMetadata:metadata,candidates:[{content:{parts:[{text:'PRIVATE'}]}}]};
+  const rows=extract(response);assert.equal(rows.length,1);assert.equal(rows[0].model,'gemini-2.5-pro');assert.equal(rows[0].responseId,'gemini-response');assert.ok(!JSON.stringify(rows).includes('PRIVATE'));
+});
+
+test('Foreign website capture: matching extension domains and persisted official-origin hints',async()=>{
+  const {DOMAINS}=require('../extension/usage.js'),extension=require('../extension/manifest.json');
+  const {providerFor}=await import('../ui/providers.mjs');
+  for(const script of extension.content_scripts)for(const match of script.matches)assert.ok(DOMAINS[new URL(match).hostname],match);
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'atlas-foreign-'));
+  try{
+    const store=new CaptureStore(dir);
+    for(const [host,id] of [['chatgpt.com','openai'],['claude.ai','anthropic'],['gemini.google.com','google'],['grok.com','xai'],['www.meta.ai','meta'],['chat.mistral.ai','mistral'],['www.perplexity.ai','perplexity'],['copilot.microsoft.com','microsoft']]){
+      await store.add({responseId:host,host,timestamp,model:'未知模型',input:10,output:5,cacheRead:0,cacheWrite:0,total:15});assert.equal(providerFor(store.list().at(-1).model,store.list().at(-1).providerHint),id);
+    }
+    assert.equal(store.list().length,8);await assert.rejects(()=>store.add({responseId:'bad',host:'chatgpt.com.evil.example',timestamp,input:10,output:5,cacheRead:0,total:15}));
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
 test('Capture persistence: concurrent duplicates, restart, no chat or auth storage, stable official origin hint',async()=>{
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'atlas-store-'));
   try{

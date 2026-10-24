@@ -5,6 +5,7 @@ const os = require('node:os');
 const readline = require('node:readline');
 const { createZstdDecompress } = require('node:zlib');
 const { createCodexParser, createDeepSeekParser, parseClaude, parseCline, deduplicate } = require('./parsers.cjs');
+const {readZCode}=require('./zcode.cjs');
 function definitions() {
   const home = os.homedir(), roaming = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
   const editors = ['Code', 'Code - Insiders', 'Cursor', 'Windsurf'];
@@ -12,13 +13,16 @@ function definitions() {
   return [
     { id: 'deepseek_desktop', name: 'DeepSeek Harness 桌面端', detail: '自动读取 .dsh 压缩会话中的服务端结算 usage，含缓存与重试', paths: [path.join(process.env.DSH_HOME || path.join(home,'.dsh'),'sessions')], kind:'dsh' },
     { id: 'codex', name: 'Codex', detail: 'CLI 与桌面端会话日志', paths: [path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'sessions'), path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'archived_sessions')], kind: 'jsonl' },
+    { id: 'zcode', name: 'ZCode', detail: '只读逐请求用量数据库，按记录总数消除缓存重叠；累计范围限本机保留的记录', paths:[path.join(process.env.ZCODE_HOME||path.join(home,'.zcode'),'cli','db')],kind:'zcode' },
     { id: 'claude', name: 'Claude Code', detail: '项目会话与子代理用量', paths: [path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'projects')], kind: 'jsonl' },
     { id: 'cline', name: 'Cline', detail: 'VS Code / Cursor / Windsurf 扩展记录', paths: storage('saoudrizwan.claude-dev'), kind: 'cline' },
     { id: 'roo', name: 'Roo Code', detail: '扩展任务中的 API 用量', paths: storage('rooveterinaryinc.roo-cline'), kind: 'cline' },
     { id: 'kilo', name: 'Kilo Code', detail: '兼容 Cline 格式的扩展任务记录', paths: storage('kilocode.kilo-code'), kind: 'cline' },
-    { id: 'cursor', name: 'Cursor / Windsurf 内置聊天', detail: '本地聊天记录缺少稳定的逐请求 Token 字段，需要平台用量导出或官方接口', paths: [], unsupported: true },
-    { id: 'web', name: 'ChatGPT / Claude / Gemini 网页聊天', detail: '网页聊天通常不保存可读取的本地 Token 账单，暂不支持自动统计', paths: [], unsupported: true },
-    { id: 'api', name: '其他 API 调用', detail: '目前未直接连接平台账单接口。通过受支持工具调用的国内模型，其真实日志用量会自动归入对应模型厂商；不会估算网页或客户端用量', paths: [], unsupported: true }
+    { id: 'cursor', name: 'Cursor', detail: '已发现本机应用数据；内置聊天用量格式尚未接入，可导入服务端 usage', paths: [path.join(roaming,'Cursor')], unsupported: true },
+    { id: 'windsurf', name: 'Windsurf', detail: '已发现本机应用数据；内置聊天用量格式尚未接入，可导入服务端 usage', paths: [path.join(roaming,'Windsurf')], unsupported: true },
+    { id: 'qoder', name: 'Qoder', detail: '已发现本机应用数据；逐请求 Token 格式尚未接入', paths: [path.join(roaming,'Qoder'),path.join(roaming,'com.qodercn.app.stable')], unsupported: true },
+    { id: 'trae', name: 'TRAE', detail: '已发现本机应用数据；逐请求 Token 格式尚未接入', paths: [path.join(roaming,'TRAE'),path.join(roaming,'TRAE CN'),path.join(roaming,'TRAE SOLO CN')], unsupported: true },
+    { id: 'chatgpt', name: 'ChatGPT', detail: '已发现本机应用数据；消费者客户端没有稳定的逐请求 Token 日志，可用扩展采集实际返回的 usage', paths:[path.join(roaming,'ChatGPT')],unsupported:true }
   ];
 }
 async function walk(dir, kind, errors, files = []) {
@@ -28,7 +32,7 @@ async function walk(dir, kind, errors, files = []) {
   for (const e of entries) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) await walk(p, kind, errors, files);
-    else if (e.isFile() && (kind === 'dsh' ? /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/.test(e.name) : kind === 'jsonl' ? e.name.endsWith('.jsonl') : /^(ui_messages|claude_messages)\.json$/.test(e.name))) files.push(p);
+    else if (e.isFile() && (kind==='zcode'?e.name==='db.sqlite':kind === 'dsh' ? /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/.test(e.name) : kind === 'jsonl' ? e.name.endsWith('.jsonl') : /^(ui_messages|claude_messages)\.json$/.test(e.name))) files.push(p);
   }
   return files;
 }
@@ -39,7 +43,8 @@ class Scanner {
     for (const def of definitions()) {
       const custom = settings.paths?.[def.id];
       const roots = custom ? [custom] : def.paths;
-      const source = { ...def, paths: roots, enabled: settings.enabled?.[def.id] !== false, files: 0, records: 0, total: 0, errors: [] };
+      const detected=(await Promise.all(roots.map(root=>fsp.access(root).then(()=>true,()=>false)))).some(Boolean);
+      const source = { ...def, paths: roots, detected, enabled: settings.enabled?.[def.id] !== false, files: 0, records: 0, total: 0, errors: [] };
       sources.push(source);
       if (def.unsupported || !source.enabled) continue;
       const files = new Set();
@@ -49,12 +54,14 @@ class Scanner {
       for (const file of files) {
         seen.add(file);
         try {
-          const stat = await fsp.stat(file), fingerprint = `${stat.size}:${stat.mtimeMs}`;
+          const stat = await fsp.stat(file);let fingerprint = `${stat.size}:${stat.mtimeMs}`;
+          if(def.kind==='zcode'){const wal=await fsp.stat(file+'-wal').catch(()=>null);fingerprint+=`:${wal?.size||0}:${wal?.mtimeMs||0}`;}
           let parsed = this.cache.get(file);
           if (parsed?.fingerprint !== fingerprint) {
             const rows = [];
             let malformed = 0;
-            if (def.kind === 'jsonl' || def.kind==='dsh') {
+            if(def.kind==='zcode'){const result=readZCode(file);rows.push(...result.records);malformed=result.skipped;}
+            else if (def.kind === 'jsonl' || def.kind==='dsh') {
               const parse = def.kind==='dsh' ? createDeepSeekParser(file) : def.id === 'codex' ? createCodexParser(file) : (obj, i) => parseClaude(obj, file, i);
               const input=fs.createReadStream(file);
               const decoded=file.endsWith('.zstd')?input.pipe(createZstdDecompress()):input;

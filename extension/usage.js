@@ -12,6 +12,12 @@
       if('cache_read_input_tokens'in u||'cache_creation_input_tokens'in u){
         input=u.input_tokens;read=u.cache_read_input_tokens??0;write=u.cache_creation_input_tokens??0;
       }else{read=u.input_tokens_details?.cached_tokens??0;if(!valid(read)||read>u.input_tokens)return null;input=u.input_tokens-read;}
+    }else if(valid(u.promptTokenCount)&&valid(u.candidatesTokenCount)&&valid(u.totalTokenCount)){
+      read=u.cachedContentTokenCount??0;
+      const thoughts=u.thoughtsTokenCount??0,tools=u.toolUsePromptTokenCount??0;
+      if(![read,thoughts,tools].every(valid)||read>u.promptTokenCount)return null;
+      input=u.promptTokenCount-read+tools;output=u.candidatesTokenCount+thoughts;
+      if(input+output+read!==u.totalTokenCount)return null;
     }else return null;
     if(![input,output,read,write].every(valid))return null;
     const total=input+output+read+write;
@@ -21,8 +27,9 @@
   function extract(object,context={},depth=0){
     if(!object||typeof object!=='object'||depth>8||object.estimated===true)return [];
     const records=[];
-    const current={...context,model:typeof object.model==='string'?object.model:context.model,responseId:typeof object.id==='string'?object.id:context.responseId,created:object.created??context.created};
-    const usage=normalize(object.usage);
+    const model=object.model??object.modelVersion,id=object.id??object.responseId;
+    const current={...context,model:typeof model==='string'?model:context.model,responseId:typeof id==='string'?id:context.responseId,created:object.created??context.created};
+    const usage=normalize(object.usage)||normalize(object.usageMetadata);
     if(usage)records.push({...current,...usage});
     for(const key of ['data','response','result','message','output']){
       const value=object[key];if(value&&typeof value==='object')for(const child of Array.isArray(value)?value:[value])records.push(...extract(child,current,depth+1));
@@ -38,7 +45,15 @@
     'chat.deepseek.com':'deepseek','www.doubao.com':'doubao','doubao.com':'doubao',
     'www.kimi.com':'moonshot','kimi.com':'moonshot','kimi.moonshot.cn':'moonshot',
     'www.qianwen.com':'qwen','qianwen.com':'qwen','tongyi.aliyun.com':'qwen','chat.qwen.ai':'qwen',
-    'chatglm.cn':'zhipu','www.chatglm.cn':'zhipu','yiyan.baidu.com':'ernie','yuanbao.tencent.com':'hunyuan','xinghuo.xfyun.cn':'spark'
+    'chatglm.cn':'zhipu','www.chatglm.cn':'zhipu','yiyan.baidu.com':'ernie','yuanbao.tencent.com':'hunyuan','xinghuo.xfyun.cn':'spark',
+    'chatgpt.com':'openai','chat.openai.com':'openai','api.openai.com':'openai',
+    'claude.ai':'anthropic','api.anthropic.com':'anthropic',
+    'gemini.google.com':'google','aistudio.google.com':'google','generativelanguage.googleapis.com':'google',
+    'grok.com':'xai','www.grok.com':'xai','api.x.ai':'xai',
+    'meta.ai':'meta','www.meta.ai':'meta',
+    'chat.mistral.ai':'mistral','api.mistral.ai':'mistral',
+    'www.perplexity.ai':'perplexity','perplexity.ai':'perplexity','api.perplexity.ai':'perplexity',
+    'copilot.microsoft.com':'microsoft'
   };
   return {normalize,extract,streamParser,DOMAINS};
 });

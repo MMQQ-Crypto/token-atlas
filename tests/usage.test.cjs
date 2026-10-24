@@ -69,8 +69,20 @@ test('Domestic filtering and totals use only supplied real records, without crea
   assert.equal(domestic.length,3);assert.equal(domestic.reduce((s,r)=>s+r.total,0),420);
   assert.equal(rows.filter(r=>matchesProvider(r,'deepseek')).reduce((s,r)=>s+r.total,0),340);
   assert.equal(rows.filter(r=>matchesProvider(r,'unknown')).length,1);
-  const totals=providerUsage(rows);assert.equal(totals.length,12);
+  const totals=providerUsage(rows,'domestic');assert.equal(totals.length,12);
   assert.equal(totals.find(p=>p.id==='deepseek').count,2);
   assert.equal(totals.find(p=>p.id==='moonshot').count,0);
   assert.equal(rows.length,5);
+});
+
+test('Foreign providers: routed models, official-origin hints and regional totals remain separate',async()=>{
+  const {providerFor,providerUsage,matchesProvider}=await import('../ui/providers.mjs');
+  const examples=[['x-ai/grok-4','xai'],['meta-llama/Llama-3.3-70B','meta'],['mistralai/devstral-small','mistral'],['cohere/command-r-plus','cohere'],['sonar-pro','perplexity'],['amazon.nova-pro-v1:0','amazon'],['microsoft/Phi-4','microsoft'],['llamazing','unknown']];
+  for(const [model,id] of examples)assert.equal(providerFor(model),id,model);
+  assert.equal(providerFor('未知模型','google'),'google');assert.equal(providerFor('claude-sonnet-4','openai'),'anthropic');
+  const rows=[{model:'gpt-4.1',source:'codex',total:100},{model:'claude-sonnet-4',source:'claude',total:200},{model:'deepseek-chat',total:300},{model:'未知模型',providerHint:'google',total:50},{model:'custom',total:900}];
+  assert.equal(rows.filter(r=>matchesProvider(r,'foreign')).reduce((s,r)=>s+r.total,0),350);
+  assert.equal(providerUsage(rows).length,22);assert.equal(providerUsage(rows,'foreign').length,10);
+  assert.equal(providerUsage(rows).find(p=>p.id==='anthropic').total,200);
+  assert.equal(providerUsage(rows,'foreign').find(p=>p.id==='xai').count,0);
 });

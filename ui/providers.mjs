@@ -14,25 +14,33 @@ export const DOMESTIC_PROVIDERS = [
   {id:'baichuan',name:'百川智能',models:'Baichuan 系列',pattern:/^baichuan(?:\d|[-_.]|$)/i},
   {id:'yi',name:'零一万物',models:'Yi 系列',pattern:/^yi(?:\d|[-_.]|$)/i}
 ];
-const OTHER_PROVIDERS = [
-  {id:'openai',name:'OpenAI',pattern:/^(?:gpt(?:\d|[-_.])|chatgpt(?:[-_.]|$)|codex(?:[-_.]|$)|o[134](?:[-_.]|$))/i},
-  {id:'anthropic',name:'Anthropic',pattern:/^claude(?:[-_.]|$)/i},
-  {id:'google',name:'Google',pattern:/^(?:gemini|gemma)(?:\d|[-_.]|$)/i}
+export const FOREIGN_PROVIDERS = [
+  {id:'openai',name:'OpenAI / ChatGPT',models:'GPT / o 系列 / Codex',pattern:/^(?:gpt(?:\d|[-_.])|chatgpt(?:[-_.]|$)|codex(?:[-_.]|$)|o[134](?:[-_.]|$))/i},
+  {id:'anthropic',name:'Anthropic / Claude',models:'Claude 系列',pattern:/^claude(?:[-_.]|$)/i},
+  {id:'google',name:'Google / Gemini',models:'Gemini / Gemma 系列',pattern:/^(?:gemini|gemma)(?:\d|[-_.]|$)/i},
+  {id:'xai',name:'xAI / Grok',models:'Grok 系列',pattern:/^grok(?:\d|[-_.]|$)/i},
+  {id:'meta',name:'Meta / Llama',models:'Llama 系列',pattern:/^(?:meta[-_.])?llama(?:\d|[-_.]|$)/i},
+  {id:'mistral',name:'Mistral / Le Chat',models:'Mistral / Mixtral / Codestral 等系列',pattern:/^(?:mistral|mixtral|codestral|magistral|ministral|devstral|pixtral|voxtral)(?:\d|[-_.]|$)/i},
+  {id:'cohere',name:'Cohere',models:'Command / Aya 系列',pattern:/^(?:command|aya)(?:\d|[-_.]|$)/i},
+  {id:'perplexity',name:'Perplexity / Sonar',models:'Sonar 系列',pattern:/^sonar(?:\d|[-_.]|$)/i},
+  {id:'amazon',name:'Amazon / Nova',models:'Nova / Titan 系列',pattern:/^(?:amazon\.)?(?:nova|titan)(?:\d|[-_.]|$)/i},
+  {id:'microsoft',name:'Microsoft / Copilot',models:'Phi 系列；Copilot 按网页来源归类',pattern:/^phi(?:\d|[-_.]|$)/i}
 ];
+export const ALL_PROVIDERS = [...FOREIGN_PROVIDERS.map(p=>({...p,region:'foreign'})),...DOMESTIC_PROVIDERS.map(p=>({...p,region:'domestic'}))];
 export function providerFor(model,hint) {
   const parts=String(model || '').trim().split('/');
   const name=parts.at(-1);
-  return [...DOMESTIC_PROVIDERS,...OTHER_PROVIDERS].find(p=>p.pattern.test(name))?.id || (DOMESTIC_PROVIDERS.some(p=>p.id===hint)?hint:'unknown');
+  return ALL_PROVIDERS.find(p=>p.pattern.test(name))?.id || (ALL_PROVIDERS.some(p=>p.id===hint)?hint:'unknown');
 }
-export function providerName(id) {return [...DOMESTIC_PROVIDERS,...OTHER_PROVIDERS].find(p=>p.id===id)?.name || '未识别厂商';}
+export function providerName(id) {return id==='domestic'?'国内模型':id==='foreign'?'国外模型':ALL_PROVIDERS.find(p=>p.id===id)?.name || '未识别厂商';}
 export function matchesProvider(record, filter) {
   if(!filter)return true;
   const id=providerFor(record.model,record.providerHint);
-  return filter==='domestic'?DOMESTIC_PROVIDERS.some(p=>p.id===id):id===filter;
+  return ['domestic','foreign'].includes(filter)?ALL_PROVIDERS.some(p=>p.id===id&&p.region===filter):id===filter;
 }
-export function providerUsage(records) {
-  return DOMESTIC_PROVIDERS.map(p=>{
+export function providerUsage(records,region='all') {
+  return ALL_PROVIDERS.filter(p=>region==='all'||p.region===region).map(p=>{
     const rows=records.filter(r=>providerFor(r.model,r.providerHint)===p.id);
-    return {id:p.id,name:p.name,models:p.models,count:rows.length,total:rows.reduce((sum,r)=>sum+r.total,0)};
+    return {id:p.id,name:p.name,models:p.models,region:p.region,count:rows.length,total:rows.reduce((sum,r)=>sum+r.total,0)};
   });
 }

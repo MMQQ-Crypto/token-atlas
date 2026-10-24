@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('tokenAtlas', {
   checkUpdate:()=>ipcRenderer.invoke('update:check'),
   downloadUpdate:()=>ipcRenderer.invoke('update:download'),
   installUpdate:()=>ipcRenderer.invoke('update:install'),
+  openRelease:()=>ipcRenderer.invoke('update:open-release'),
   onUpdate:fn=>ipcRenderer.on('update:changed',(_event,state)=>fn(state))
 });

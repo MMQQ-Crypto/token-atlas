@@ -6,7 +6,8 @@ const { Worker } = require('node:worker_threads');
 const { CaptureStore } = require('./capture-store.cjs');
 const { CaptureServer } = require('./capture-server.cjs');
 const { Updater } = require('./updater.cjs');
-const sourceIds=['deepseek_desktop','codex','claude','cline','roo','kilo'];
+const updateConfig = require('./update-config.json');
+const sourceIds=['deepseek_desktop','codex','zcode','claude','cline','roo','kilo'];
 let captureStore,captureServer,updater;
 let win, worker, pending, snapshot, settings = { enabled: {}, paths: {}, autoRefresh: true };
 const entry = path.join(__dirname, '..', 'ui', 'index.html');
@@ -54,6 +55,7 @@ app.whenReady().then(async () => {
   handle('update:check',()=>updater.check());
   handle('update:download',()=>updater.download());
   handle('update:install',()=>updater.install());
+  handle('update:open-release',()=>shell.openExternal(`https://github.com/${updateConfig.repository}/releases/latest`));
   handle('settings:update', async next => {
     if (!next || typeof next.autoRefresh !== 'boolean' || !next.enabled || typeof next.enabled !== 'object') throw new Error('无效设置');
     settings.autoRefresh = next.autoRefresh;
@@ -114,26 +116,30 @@ app.whenReady().then(async () => {
         const image = await win.webContents.capturePage();
         await fs.mkdir(smokeRoot, { recursive: true });
         await fs.writeFile(path.join(smokeRoot, 'desktop.png'), image.toPNG());
-        const domestic = await win.webContents.executeJavaScript('document.querySelector("[data-page=sources]").click(); ({cards:document.querySelectorAll(".domestic-card").length,evidence:document.querySelectorAll(".capture-evidence").length})');
-        if (domestic.cards !== 12 || domestic.evidence !== 12) throw new Error('国内平台状态检查未通过');
+        const domestic = await win.webContents.executeJavaScript('({cards:document.querySelectorAll(".provider-card").length,apps:document.querySelectorAll(".application-card").length,phantom:document.querySelector("#domestic-platforms").textContent.includes("暂无真实用量")})');
+        if (!domestic.apps || !domestic.cards || domestic.phantom) throw new Error('应用和供应商识别检查未通过');
+        const {DatabaseSync}=require('node:sqlite');const sqliteProbe=new DatabaseSync(':memory:');sqliteProbe.exec('CREATE TABLE probe(id INTEGER)');sqliteProbe.close();
         const exportPath = path.join(smokeRoot, 'export-check.csv');
         dialog.showSaveDialog = async () => ({ canceled: false, filePath: exportPath });
         const exported = await win.webContents.executeJavaScript('window.tokenAtlas.exportCSV({provider:"openai"})');
         const csv = await fs.readFile(exportPath, 'utf8');
         if (!exported || !csv.includes('模型厂商') || !csv.includes('OpenAI')) throw new Error('桌面 CSV 导出检查未通过');
         const {providerUsage}=await import('../ui/providers.mjs');
-        const realDomestic=providerUsage(snapshot.records).filter(p=>p.count>0);
+        const realDomestic=providerUsage(snapshot.records,'domestic').filter(p=>p.count>0);
         if(realDomestic.length){
           await win.webContents.executeJavaScript('window.tokenAtlas.exportCSV({provider:"domestic"})');
           const domesticCSV=await fs.readFile(exportPath,'utf8');
-          if(!domesticCSV.includes('DeepSeek')||domesticCSV.includes('"OpenAI"'))throw new Error('国内真实用量导出检查未通过');
+          if(!domesticCSV.includes('DeepSeek')||domesticCSV.includes('OpenAI'))throw new Error('国内真实用量导出检查未通过');
         }
+        let releasePagePassed=false;const originalOpenExternal=shell.openExternal;
+        try{shell.openExternal=async url=>{if(url!==`https://github.com/${updateConfig.repository}/releases/latest`)throw new Error('发布页地址不正确');releasePagePassed=true;};await win.webContents.executeJavaScript('window.tokenAtlas.openRelease()');}finally{shell.openExternal=originalOpenExternal;}
+        if(!releasePagePassed)throw new Error('发布页连接检查未通过');
         const extensionCheck=path.join(smokeRoot,'extension-check');await fs.cp(path.join(app.getAppPath(),'extension'),extensionCheck,{recursive:true});
         const manifest=JSON.parse(await fs.readFile(path.join(extensionCheck,'manifest.json'),'utf8'));if(manifest.manifest_version!==3)throw new Error('扩展打包检查未通过');
         const bridgeStatus=await captureServer.start(0);
         const health=await fetch(bridgeStatus.url+'/health',{headers:{Authorization:'Bearer '+bridgeStatus.key}});
         if(!health.ok)throw new Error('网页采集通道检查未通过');await captureServer.stop();
-        await fs.writeFile(path.join(smokeRoot,'smoke-result.json'),JSON.stringify({...result,domestic,exportPassed:true,bridgePassed:true,realDomestic},null,2));
+        await fs.writeFile(path.join(smokeRoot,'smoke-result.json'),JSON.stringify({...result,domestic,exportPassed:true,bridgePassed:true,releasePagePassed,realDomestic},null,2));
         console.log('PASS: packaged desktop, real domestic usage, browser capture bridge, provider-filtered CSV export.');
       } catch (e) { console.error(e); app.exit(1); return; }
       app.quit();

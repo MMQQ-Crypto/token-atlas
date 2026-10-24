@@ -1,72 +1,35 @@
-const fs=require('node:fs/promises');
-const path=require('node:path');
-const http=require('node:http');
-const assert=require('node:assert/strict');
-const {Scanner}=require('../desktop/scanner.cjs');
+const fs=require('node:fs/promises'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
 async function main(){
-  const playwright=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-  const data=await new Scanner().scan();
-  const root=path.resolve(__dirname,'../ui');
-  const server=http.createServer(async(req,res)=>{
-    try{const name=req.url==='/'?'index.html':req.url.slice(1);if(!/^[\w.-]+$/.test(name))throw Error();const file=path.join(root,name);res.setHeader('Content-Type',name.endsWith('.mjs')?'application/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(await fs.readFile(file));}
-    catch{res.statusCode=404;res.end();}
-  });
-  await new Promise(r=>server.listen(0,'127.0.0.1',r));
-  let browser;
-  try{
-    browser=await playwright.chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL || 'msedge'});
-    const page=await browser.newPage({viewport:{width:1440,height:1180},deviceScaleFactor:1});
-    const errors=[];page.on('pageerror',e=>errors.push(e.message));
-    await page.addInitScript(data=>{let settings={autoRefresh:true,enabled:{},paths:{}};window.tokenAtlas={scan:async()=>data,getSettings:async()=>settings,updateSettings:async next=>(settings=next),chooseFolder:async()=>null,resetFolder:async()=>settings,captureStatus:async()=>({running:false,url:'http://127.0.0.1:46137'}),startCapture:async()=>({running:true,url:'http://127.0.0.1:46137'}),stopCapture:async()=>({running:false,url:'http://127.0.0.1:46137'}),importUsage:async()=>({found:2,added:1,skipped:0}),exportCSV:async filter=>{window.lastExportFilter=filter;return true;}};},data);
-    await page.goto(`http://127.0.0.1:${server.address().port}`);
-    await page.waitForFunction(()=>document.querySelector('#sync-status').textContent.includes('条用量记录'));
-    assert.equal(await page.locator('.stat').count(),5);
-    await page.evaluate(()=>{const state={currentVersion:'1.3.0',availableVersion:'1.4.0',notes:'Fixture update notes',progress:0,error:'',canInstall:true};window.tokenAtlas.checkUpdate=async()=>({...state,status:'available'});window.tokenAtlas.downloadUpdate=async()=>({...state,status:'ready',progress:100});});
-    await page.locator('#updates-open').click();assert.ok((await page.locator('#updates-message').innerText()).includes('1.4.0'));
-    await page.locator('#updates-download').click();assert.ok((await page.locator('#updates-message').innerText()).includes('校验已通过'));
-    assert.equal(await page.locator('#updates-install').isEnabled(),true);await page.locator('#updates-close').click();
-    await fs.mkdir(path.resolve(__dirname,'../.test-output'),{recursive:true});
-    await page.screenshot({path:path.resolve(__dirname,'../.test-output/overview.png'),fullPage:true});
-    await page.locator('[data-days="30"]').click();
-    const paths=await page.locator('#trend-chart polyline').count();assert.ok(paths>0);
-    const first=page.locator('#chart-legend button').first();await first.click();
-    assert.equal(await page.locator('#trend-chart polyline').count(),paths-1);await first.click();
-    await page.locator('[data-mode="weekly"]').click();assert.equal(await page.locator('[data-mode="weekly"]').getAttribute('class'),'selected');
-    await page.locator('[data-mode="cumulative"]').click();
-    await page.locator('[data-page="models"]').click();assert.ok(await page.locator('#model-table tr').count()>0);
-    await page.locator('[data-page="sources"]').click();assert.equal(await page.locator('.source-card').count(),data.sources.length);
-    assert.equal(await page.locator('.domestic-card').count(),12);
-    assert.equal(await page.locator('.capture-evidence').count(),12);
-    await page.locator('.domestic-panel').screenshot({path:path.resolve(__dirname,'../.test-output/domestic-platforms.png')});
-    await page.locator('#capture-toggle').click();assert.ok((await page.locator('#capture-state').innerText()).includes('采集中'));
-    await page.locator('#capture-toggle').click();assert.ok((await page.locator('#capture-state').innerText()).includes('未启动'));
-    await page.locator('#capture-import').click();assert.ok((await page.locator('#toast').innerText()).includes('已新增 1 条'));
-    await page.locator('#auto-refresh').uncheck();assert.equal(await page.locator('#auto-refresh').isChecked(),false);
-    await page.locator('[data-page="overview"]').click();
-    await page.locator('#provider-filter').selectOption('deepseek');
-    await page.locator('#export').click();
-    assert.equal(await page.evaluate(()=>window.lastExportFilter.provider),'deepseek');
-    await page.locator('#demo').click();assert.equal(await page.locator('#demo-banner').isVisible(),true);assert.equal(await page.locator('#export').isDisabled(),true);
-    await page.locator('#provider-filter').selectOption('domestic');
-    assert.ok(await page.locator('.legend-item').count()>=9);
-    assert.equal(await page.locator('.legend-item').filter({hasText:'gpt-'}).count(),0);
-    await page.locator('#provider-filter').selectOption('doubao');
-    assert.equal(await page.locator('.legend-item').count(),1);
-    assert.ok((await page.locator('.legend-item').innerText()).includes('doubao'));
-    await page.locator('[data-page="sources"]').click();
-    const domesticText=await page.locator('.domestic-panel').innerText();
-    assert.ok(domesticText.includes('真实 Token'));assert.ok(!domesticText.includes('示例'));
-    await page.locator('[data-page="overview"]').click();
-    await page.locator('#provider-filter').selectOption('');
-    await page.locator('#source-filter').selectOption('claude');
-    await page.locator('[data-days="90"]').click();
-    assert.equal(await page.locator('.legend-item').count(),1);
-    await page.locator('#exit-demo').click();assert.equal(await page.locator('#demo-banner').isVisible(),false);
-    await page.setViewportSize({width:960,height:800});
-    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
-    await page.screenshot({path:path.resolve(__dirname,'../.test-output/compact.png'),fullPage:true});
-    assert.deepEqual(errors,[]);
-    console.log('PASS: real-data dashboard, domestic provider cards, capture controls, usage import, export provider filter, demo isolation, range, legend, activity, model table, sources, 960px layout; no renderer exceptions.');
-  }finally{await browser?.close();await new Promise(r=>server.close(r));}
+ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+ const {dayOffset}=await import('../ui/analytics.mjs');const now=new Date();
+ const make=(id,source,model,offset,total)=>({id,session:id,source,model,timestamp:dayOffset(now,offset).toISOString(),input:total-10,output:10,cacheRead:0,cacheWrite:0,total});
+ const data={updatedAt:now.toISOString(),sources:[{id:'codex',name:'Codex',detected:true,enabled:true,paths:[],files:3,records:3,total:600,errors:[],detail:'Fixture'},{id:'zcode',name:'ZCode',detected:true,enabled:true,paths:[],files:1,records:4,total:7500,errors:[],detail:'Fixture'},{id:'claude',name:'Claude Code',detected:false,enabled:true,paths:[],files:0,records:0,total:0,errors:[],detail:'Unused fixture'}],records:[make('c1','codex','gpt-fixture',0,100),make('c2','codex','gpt-fixture',-8,200),make('c3','codex','gpt-fixture',-40,300),make('z1','zcode','glm-5.3',0,1000),make('z2','zcode','claude-sonnet-4',-3,500),make('z3','zcode','glm-5.3',-10,2000),make('z4','zcode','glm-5.3',-45,4000)]};
+ const root=path.resolve(__dirname,'../ui'),output=path.resolve(__dirname,'../.test-output');await fs.mkdir(output,{recursive:true});
+ const server=http.createServer(async(req,res)=>{try{const name=req.url==='/'?'index.html':req.url.slice(1);if(!/^[\w.-]+$/.test(name))throw Error();res.setHeader('Content-Type',name.endsWith('.mjs')?'application/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(await fs.readFile(path.join(root,name)));}catch{res.writeHead(404).end();}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));let browser;
+ try{
+  browser=await chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||'msedge'});const page=await browser.newPage({viewport:{width:1440,height:1180}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(data=>{let settings={autoRefresh:true,enabled:{},paths:{}};window.tokenAtlas={scan:async()=>data,getSettings:async()=>settings,updateSettings:async next=>(settings=next),chooseFolder:async()=>null,captureStatus:async()=>({running:false,url:'http://127.0.0.1:46137'}),startCapture:async()=>({running:true,url:'http://127.0.0.1:46137'}),stopCapture:async()=>({running:false,url:'http://127.0.0.1:46137'}),importUsage:async()=>({found:1,added:1}),exportCSV:async filter=>{window.lastExportFilter=filter;return true;},openRelease:async()=>{window.releaseOpened=true;},checkUpdate:async()=>({currentVersion:'1.4.0',status:'error',error:'GitHub 拒绝访问（403）',progress:0})};},data);
+  await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>document.querySelector('#sync-status').textContent.includes('条用量记录'));
+  const stat=()=>page.locator('.stat-value').first().innerText();
+  assert.equal(await page.locator('.application-card').count(),2);assert.equal(await page.locator('[data-application="claude"]').count(),0);assert.equal(await stat(),'1,600');
+  assert.ok((await page.locator('[data-application="zcode"]').innerText()).includes('7,500'));
+  await page.screenshot({path:path.join(output,'applications-overview.png'),fullPage:true});
+  await page.locator('[data-application="zcode"]').click();assert.ok((await page.locator('#page-title').innerText()).includes('ZCode'));assert.equal(await stat(),'1,500');assert.equal(await page.locator('.provider-card').count(),2);
+  await page.screenshot({path:path.join(output,'application-drilldown.png'),fullPage:true});
+  await page.locator('[data-provider-card="zhipu"]').click();assert.equal(await page.locator('#model-table tr').count(),1);assert.ok((await page.locator('#model-table').innerText()).includes('1,000'));assert.ok(!(await page.locator('#model-table').innerText()).includes('claude'));
+  await page.locator('[data-days="30"]').click();assert.ok((await page.locator('#model-table').innerText()).includes('3,000'));await page.locator('#export').click();assert.equal(await page.evaluate(()=>window.lastExportFilter.source),'zcode');assert.equal(await page.evaluate(()=>window.lastExportFilter.provider),'zhipu');
+  await page.locator('#application-back').click();assert.equal(await stat(),'3,800');
+  for(const [days,total] of [['1','1,100'],['7','1,600'],['30','3,800'],['0','8,100']]){await page.locator('[data-days="'+days+'"]').click();assert.equal(await stat(),total);}
+  await page.locator('#provider-region [data-region="foreign"]').click();assert.equal(await page.locator('.provider-card').count(),2);assert.equal(await page.locator('[data-provider-card="zhipu"]').count(),0);await page.locator('#provider-region [data-region="all"]').click();
+  await page.locator('[data-page="sources"]').click();assert.equal(await page.locator('.source-card').count(),2);
+  await page.locator('#capture-toggle').click();assert.ok((await page.locator('#capture-state').innerText()).includes('采集中'));await page.locator('#capture-toggle').click();
+  await page.locator('[data-page="overview"]').click();await page.locator('#updates-open').click();assert.ok((await page.locator('#updates-detail').innerText()).includes('403'));await page.locator('#updates-release').click();assert.equal(await page.evaluate(()=>window.releaseOpened),true);
+  await page.evaluate(()=>{const s={currentVersion:'1.4.0',availableVersion:'1.5.0',notes:'Fixture',progress:0,error:'',canInstall:true};window.tokenAtlas.checkUpdate=async()=>({...s,status:'available'});window.tokenAtlas.downloadUpdate=async()=>({...s,status:'ready',progress:100});});
+  await page.locator('#updates-check').click();assert.ok((await page.locator('#updates-message').innerText()).includes('1.5.0'));await page.locator('#updates-download').click();assert.equal(await page.locator('#updates-install').isEnabled(),true);await page.locator('#updates-close').click();
+  await page.locator('#demo').click();assert.equal(await page.locator('#demo-banner').isVisible(),true);assert.equal(await page.locator('#export').isDisabled(),true);await page.locator('#exit-demo').click();
+  await page.setViewportSize({width:960,height:800});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'applications-compact.png'),fullPage:true});
+  assert.deepEqual(errors,[]);console.log('PASS: detected apps only; today/7/30/lifetime exact totals; app > supplier > model drilldown; scoped CSV export; foreign providers; update error recovery and release link; 960px layout.');
+ }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

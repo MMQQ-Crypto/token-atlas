@@ -1,19 +1,30 @@
 import { COLORS, NAMES, modelKey, aggregate, compact, dayKey, dayOffset, selectRecords, demoData } from './analytics.mjs';
-import { DOMESTIC_PROVIDERS, providerFor, providerName, matchesProvider, providerUsage } from './providers.mjs';
+import { DOMESTIC_PROVIDERS, FOREIGN_PROVIDERS, providerFor, providerName, matchesProvider, providerUsage } from './providers.mjs';
+import {applicationUsage,scopedRecords,usageCounts} from './applications.mjs';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const escape = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const exact = n => n.toLocaleString('zh-CN');
 let snapshot={records:[],sources:[]}, settings={autoRefresh:true,enabled:{},paths:{}}, demo=false, days=7, source='', mode='daily', hiddenModels=new Set(), busy=false;
-let page='overview', provider='', toastTimer;
+let page='overview', provider='', providerRegion='all', toastTimer;
 const bridge = window.tokenAtlas;
 function toast(text) { $('#toast').textContent=text; $('#toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,3500); }
 function records() { return demo ? demoData() : snapshot.records; }
 function unit(n) { const text=compact(n), match=text.match(/^(.*) (万|亿)$/); return match ? `${escape(match[1])}<small>${match[2]}</small>` : escape(text); }
 function renderStats(all) {
   const a=aggregate(all);
-  const items=[[unit(a.totals.total),'累计 Token 数'],[unit(a.peak),'单日峰值 Token'],[`${exact(a.sessions)}<small>个</small>`,'累计会话'],[`${a.current}<small>天</small>`,'当前连续天数'],[`${a.longest}<small>天</small>`,'最长连续天数']];
-  $('#stats').innerHTML=items.map(([value,label])=>`<div class="stat"><div class="stat-value">${all.length?value:'—'}</div><div class="stat-label">${label}</div></div>`).join('');
+  const c=usageCounts(all),label=days===1?'今日':days?`近 ${days} 天`:'累计';
+  const unknown=source&&!applicationUsage(snapshot.sources,records()).find(a=>a.id===source)?.hasUsage;
+  const items=[[unit(a.totals.total),label+' Token 总用量'],[`${c.models}<small>个</small>`,'使用模型数'],[`${c.applications}<small>个</small>`,'有用量的 Agent 应用'],[`${c.providers}<small>家</small>`,'模型供应商'],[unit(c.requests),'用量记录数']];
+  $('#stats').innerHTML=items.map(([value,label])=>`<div class="stat"><div class="stat-value">${unknown?'—':value}</div><div class="stat-label">${label}</div></div>`).join('');
+}
+function renderApplications(){
+  const apps=applicationUsage(snapshot.sources,records());
+  $('#applications-section').hidden=!!source;
+  $('#applications-summary').textContent=`检测到 ${apps.length} 个应用 · 点击进入供应商与模型明细`;
+  $('#application-list').innerHTML=apps.map(a=>`<button class="application-card" data-application="${escape(a.id)}"><div class="application-heading"><strong>${escape(a.name)}</strong><span class="source-badge ${a.hasUsage?'':'unavailable'}">${a.hasUsage?'已读取真实用量':a.enabled===false?'已停用':'已检测到'}</span></div><div class="application-periods">${[['今日',a.today],['近 7 天',a.week],['近 30 天',a.month],['累计',a.total]].map(([label,total])=>`<div><small>${label}</small><span title="${a.hasUsage?exact(total)+' tokens':'尚未取得真实用量'}">${a.hasUsage?escape(compact(total)):'—'}</span></div>`).join('')}</div><p>${a.hasUsage?`${a.models} 个模型 · 查看应用用量`:'尚未取得真实 Token 记录 · 查看接入状态'}</p></button>`).join('')||'<p class="help-copy">尚未检测到受支持的 Agent 记录。使用应用后刷新，或在数据来源中添加已有记录文件夹。</p>';
+  $('#application-back').hidden=!source;
+  $('#application-scope').textContent=source?`${NAMES[source]||source} / ${provider?providerName(provider):'全部供应商'}`:'全局总览 / 全部应用';
 }
 function renderHeatmap(all) {
   const daily=aggregate(all).daily, today=dayOffset(new Date(),0), start=dayOffset(today,-364);
@@ -78,29 +89,36 @@ function renderModels(all) {
 }
 function renderSources() {
   // Always use real records here, even while the overview is in demo mode.
-  $('#domestic-platforms').innerHTML=providerUsage(snapshot.records).map(p=>`<article class="domestic-card" data-provider-card="${p.id}"><div class="domestic-card-heading"><h3>${escape(p.name)}</h3><span class="source-badge ${p.count?'':'unavailable'}">${p.count?'已采集真实用量':'等待真实数据'}</span></div><p>${escape(p.models)}</p><div class="domestic-value">${p.count?escape(compact(p.total))+' <small>真实 tokens</small>':'<span class="no-data">暂无真实用量</span>'}</div><div class="domestic-status">已采集：${p.count?exact(p.count)+' 条服务端用量记录':'尚无有效记录'}</div><div class="domestic-status capture-evidence">采集途径：本地日志 / 网页 usage / 导入</div></article>`).join('');
+  const scoped=scopedRecords(records(),{source,days}),platforms=providerUsage(scoped,providerRegion).filter(p=>p.count);
+  const unassigned=scoped.filter(r=>providerFor(r.model,r.providerHint)==='unknown');
+  if(providerRegion==='all'&&unassigned.length)platforms.push({id:'unknown',name:'未识别供应商',models:'原始记录缺少可识别的模型或来源',region:'unknown',count:unassigned.length,total:unassigned.reduce((s,r)=>s+r.total,0)});
+  $('#provider-platform-summary').textContent=`${source?NAMES[source]||source:'全部应用'} · ${platforms.length} 个已使用供应商 · ${days===1?'今日':days?'近 '+days+' 天':'累计'}`;
+  $('#domestic-platforms').innerHTML=platforms.map(p=>`<button class="domestic-card provider-card" data-region="${p.region}" data-provider-card="${p.id}"><div class="domestic-card-heading"><h3>${escape(p.name)}</h3><span class="source-badge">${p.id===provider?'正在查看':'查看模型'}</span></div><p>${escape(p.models)}</p><div class="domestic-value" title="${exact(p.total)} tokens">${escape(compact(p.total))} <small>真实 tokens</small></div><div class="domestic-status">${exact(p.count)} 条用量记录</div></button>`).join('')||'<p class="help-copy">当前应用、地区或时段没有真实用量记录。</p>';
   $('#auto-refresh').checked=settings.autoRefresh;
-  $('#sources-list').innerHTML=snapshot.sources.map(s=>{
+  const visible=applicationUsage(snapshot.sources,snapshot.records);
+  $('#sources-list').innerHTML=visible.map(s=>{
     const status=s.unsupported?'需其他接入方式':!s.enabled?'已停用':s.errors.length?'读取有提示':s.records?'已读取':s.managed?'等待采集':s.files?'暂无用量':'未发现记录';
     if(s.managed)return `<section class="source-card"><div class="source-top"><h2>${escape(s.name)}</h2><span class="source-badge ${s.records?'':'unavailable'}">${status}</span></div><p>${escape(s.detail)}</p><div class="source-total">${exact(s.records)} 条记录 · ${compact(s.total)} tokens · 通过上方采集面板管理</div></section>`;
     return `<section class="source-card"><div class="source-top"><div class="source-name"><h2>${escape(s.name)}</h2><span class="source-badge ${s.unsupported||!s.records?'unavailable':''}">${status}</span></div>${s.unsupported?'':`<label class="switch"><input type="checkbox" data-source-toggle="${s.id}" ${s.enabled?'checked':''}><span></span><span class="sr-only">启用 ${escape(s.name)}</span></label>`}</div><p>${escape(s.detail)}</p>${s.unsupported?'':`<div class="source-path">${s.paths.map(escape).join('<br>')}</div><div class="source-controls"><button class="button" data-choose="${s.id}">更换文件夹</button>${settings.paths[s.id]?`<button class="button subtle" data-reset="${s.id}">恢复默认</button>`:''}<span class="source-total">${s.files} 个文件 · ${exact(s.records)} 条记录 · ${compact(s.total)} tokens</span></div>`}${s.errors.length?`<div class="source-error">${s.errors.slice(0,8).map(escape).join('\n')}${s.errors.length>8?'\n另有 '+(s.errors.length-8)+' 条提示':''}</div>`:''}</section>`;
   }).join('');
-  $('#source-count').textContent=snapshot.sources.filter(s=>s.records>0).length;
+  $('#source-count').textContent=visible.length;
 }
 function render() {
   const vendorRecords=records().filter(r=>matchesProvider(r,provider));
   const all=vendorRecords.filter(r=>!source||r.source===source), selected=selectRecords(vendorRecords,source,days), summary=aggregate(selected);
-  renderStats(all);renderHeatmap(all);renderTrend(selected,summary.models);renderDistribution(summary);renderModels(records());renderSources();
+  renderStats(selected);renderApplications();renderHeatmap(all);renderTrend(selected,summary.models);renderDistribution(summary);renderModels(selected);renderSources();
   $('#demo-banner').hidden=!demo;
   $('#export').disabled=demo||busy;
   $('#range-caption').textContent=days?`${dayKey(dayOffset(new Date(),1-days))} — ${dayKey(new Date())}`:'全部历史记录';
-  const present=Object.keys(NAMES).filter(id=>records().some(r=>r.source===id));
-  $('#source-filter').innerHTML='<option value="">全部工具</option>'+present.map(id=>`<option value="${id}" ${source===id?'selected':''}>${NAMES[id]}</option>`).join('');
-  $('#provider-filter').innerHTML='<option value="">全部厂商</option><option value="domestic">国内模型</option><optgroup label="国内 AI">'+DOMESTIC_PROVIDERS.map(p=>`<option value="${p.id}">${escape(p.name)}</option>`).join('')+'</optgroup><optgroup label="其他"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="unknown">未识别厂商</option></optgroup>';
+  const present=applicationUsage(snapshot.sources,records()).map(a=>a.id);
+  $('#source-filter').innerHTML='<option value="">全部应用</option>'+present.map(id=>`<option value="${id}" ${source===id?'selected':''}>${escape(NAMES[id]||id)}</option>`).join('');
+  $('#provider-filter').innerHTML='<option value="">全部厂商</option><option value="domestic">国内模型</option><option value="foreign">国外模型</option>'+[['国外 AI',FOREIGN_PROVIDERS],['国内 AI',DOMESTIC_PROVIDERS]].map(([label,items])=>`<optgroup label="${label}">${items.map(p=>`<option value="${p.id}">${escape(p.name)}</option>`).join('')}</optgroup>`).join('')+'<option value="unknown">未识别厂商</option>';
   $('#provider-filter').value=provider;
   $('#provider-empty').hidden=!provider||!!all.length;
   $('#provider-empty').textContent=`${provider==='domestic'?'国内模型':providerName(provider)}：当前条件下尚未采集到真实用量。可在「数据来源」连接网页采集或导入带 usage 的响应记录；缺少用量字段的数据不计数。`;
   $('#sync-status').textContent=demo?'示例数据 · 自动刷新已暂停':snapshot.updatedAt?`上次读取 ${new Date(snapshot.updatedAt).toLocaleTimeString('zh-CN')} · ${exact(snapshot.records.length)} 条用量记录${settings.autoRefresh?' · 每分钟刷新':''}`:'尚未读取本地记录';
+  $('#models-scope').textContent=`${source?NAMES[source]||source:'全部应用'} · ${provider?providerName(provider):'全部供应商'} · ${days===1?'今日':days?'近 '+days+' 天':'全部历史'}`;
+  if(page==='overview'){$('#page-title').textContent=source?(NAMES[source]||source)+' 用量':'所有 Agent，尽在一处。';$('#page-subtitle').textContent=source?'查看这个应用的供应商、模型与 Token 构成。':'自动识别本机应用，汇总真实 Token 与模型使用情况。';}
 }
 async function refresh() {
   if(busy)return;
@@ -114,9 +132,12 @@ async function saveSettings() {
   if(!bridge)return;
   try{settings=await bridge.updateSettings(settings);await refresh();}catch(e){toast('设置未保存：'+e.message);}
 }
-function setPage(next){page=next;for(const p of ['overview','models','sources'])$(`#${p}-page`).hidden=p!==next;$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));$('#page-title').textContent=next==='sources'?'连接你的 AI 工具。':next==='models'?'看清每个模型的用量。':'每一次使用，都有迹可循。';$('#page-subtitle').textContent=next==='sources'?'从本机记录自动汇总，了解每个数据源的接入状态。':next==='models'?'查看不同模型的输入、输出与缓存，基于全部历史记录。':'把分散在不同 AI 工具中的 Token，汇集在一处。';}
-$$('[data-page]').forEach(b=>b.addEventListener('click',()=>setPage(b.dataset.page)));
-$('.brand').addEventListener('click',e=>{e.preventDefault();setPage('overview');});
+function setPage(next){page=next;for(const p of ['overview','models','sources'])$(`#${p}-page`).hidden=p!==next;$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));$('#page-title').textContent=next==='sources'?'连接你的 Agent 应用。':next==='models'?'查看模型用量。':source?(NAMES[source]||source)+' 用量':'所有 Agent，尽在一处。';$('#page-subtitle').textContent=next==='sources'?'只显示已检测到的应用；统计范围为本机及已导入记录。':next==='models'?'沿用已选择的应用、供应商和时间范围。':source?'查看这个应用的供应商、模型与 Token 构成。':'自动识别本机应用，汇总真实 Token 与模型使用情况。';}
+$$('[data-page]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.page==='overview'){source='';provider='';}setPage(b.dataset.page);render();}));
+$('.brand').addEventListener('click',e=>{e.preventDefault();source='';provider='';setPage('overview');render();});
+$('#application-list').addEventListener('click',e=>{const b=e.target.closest('[data-application]');if(!b)return;source=b.dataset.application;provider='';hiddenModels.clear();setPage('overview');render();window.scrollTo({top:0});});
+$('#application-back').addEventListener('click',()=>{source='';provider='';setPage('overview');render();});
+$('#domestic-platforms').addEventListener('click',e=>{const b=e.target.closest('[data-provider-card]');if(!b)return;provider=b.dataset.providerCard;hiddenModels.clear();setPage('models');render();window.scrollTo({top:0});});
 $('#refresh').addEventListener('click',async()=>{if(demo){demo=false;source='';provider='';hiddenModels.clear();}await refresh();});
 $('#demo').addEventListener('click',()=>{demo=!demo;source='';provider='';hiddenModels.clear();render();});
 $('#exit-demo').addEventListener('click',()=>{demo=false;source='';provider='';hiddenModels.clear();render();});
@@ -124,9 +145,11 @@ $('#range').addEventListener('click',e=>{const b=e.target.closest('[data-days]')
 $('#activity-mode').addEventListener('click',e=>{const b=e.target.closest('[data-mode]');if(!b)return;mode=b.dataset.mode;$$('#activity-mode button').forEach(x=>x.classList.toggle('selected',x===b));render();});
 $('#source-filter').addEventListener('change',e=>{source=e.target.value;hiddenModels.clear();render();});
 $('#provider-filter').addEventListener('change',e=>{provider=e.target.value;hiddenModels.clear();render();});
+$('#provider-region').addEventListener('click',e=>{const b=e.target.closest('[data-region]');if(!b)return;providerRegion=b.dataset.region;$$('#provider-region button').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',String(x===b));});renderSources();});
 $('#chart-legend').addEventListener('click',e=>{const b=e.target.closest('[data-model]');if(!b)return;const key=b.dataset.model;hiddenModels.has(key)?hiddenModels.delete(key):hiddenModels.add(key);render();});
 $('#auto-refresh').addEventListener('change',async e=>{settings.autoRefresh=e.target.checked;await saveSettings();});
 $('#sources-list').addEventListener('change',async e=>{if(!e.target.dataset.sourceToggle)return;settings.enabled[e.target.dataset.sourceToggle]=e.target.checked;await saveSettings();});
+$('#source-add').addEventListener('click',async()=>{if(!bridge?.chooseFolder){toast('请在桌面应用中选择记录目录');return;}try{const next=await bridge.chooseFolder($('#source-add-type').value);if(next){settings=next;await refresh();toast('记录目录已连接');}}catch(e){toast('记录目录未连接：'+e.message);}});
 $('#sources-list').addEventListener('click',async e=>{
   const choose=e.target.closest('[data-choose]'),reset=e.target.closest('[data-reset]');if(!choose&&!reset)return;
   if(!bridge){toast('请在桌面程序中选择本机目录');return;}
@@ -135,7 +158,7 @@ $('#sources-list').addEventListener('click',async e=>{
 });
 $('#export').addEventListener('click',async()=>{
   if(!bridge||demo){toast('请在桌面程序中导出真实用量');return;}
-  const filter=page==='overview'?{source,provider,start:days?dayOffset(new Date(),1-days).toISOString():undefined,end:dayOffset(new Date(),1).toISOString()}:{};
+  const filter={source,provider,start:days?dayOffset(new Date(),1-days).toISOString():undefined,end:dayOffset(new Date(),1).toISOString()};
   try{if(await bridge.exportCSV(filter))toast('用量记录已导出');}catch(e){toast('导出失败：'+e.message);}
 });
 const tooltip=$('#tooltip');
@@ -152,6 +175,7 @@ function showUpdate(s){
 }
 $('#updates-open').addEventListener('click',async()=>{$('#updates-dialog').showModal();if(!bridge?.checkUpdate){$('#updates-message').textContent='请在桌面应用中检查更新';return;}showUpdate(await bridge.checkUpdate());});
 $('#updates-close').addEventListener('click',()=>$('#updates-dialog').close());
+$('#updates-release').addEventListener('click',async()=>{try{if(bridge?.openRelease)await bridge.openRelease();else toast('请在桌面应用中打开发布页');}catch(e){toast('发布页未打开：'+e.message);}});
 $('#updates-check').addEventListener('click',async()=>{if(bridge?.checkUpdate)showUpdate(await bridge.checkUpdate());});
 $('#updates-download').addEventListener('click',async()=>{try{showUpdate(await bridge.downloadUpdate());}catch(e){toast('下载失败：'+e.message);}});
 $('#updates-install').addEventListener('click',async()=>{try{await bridge.installUpdate();}catch(e){toast('更新失败：'+e.message);}});
