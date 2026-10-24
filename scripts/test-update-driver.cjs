@@ -6,6 +6,8 @@ app.setPath('userData',path.join(root,'driver-data'));
 app.whenReady().then(async()=>{
   try{
     const fixture=JSON.parse(await fs.readFile(path.join(root,'fixture-driver.json'),'utf8'));
+    // Match GUI/PowerShell 7 environments where legacy script modules are absent.
+    process.env.PSModulePath=path.join(root,'empty-module-path');
     const updater=new Updater({version:'1.0.0',directory:root,portableFile:fixture.target,quit:()=>app.quit()});
     updater.manifest={version:'9.9.9',sha256:fixture.sha256};updater.downloaded=fixture.downloaded;
     updater.set({status:'ready',progress:100});await updater.install();

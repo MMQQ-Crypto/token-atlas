@@ -1,5 +1,11 @@
 param([Parameter(Mandatory=$true)][string]$ConfigFile)
 $ErrorActionPreference = 'Stop'
+function Get-UpdateHash([string]$FilePath) {
+  $stream=[IO.File]::OpenRead($FilePath)
+  $algorithm=[Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
+  finally { $stream.Dispose(); $algorithm.Dispose() }
+}
 $updateSettings = Get-Content -LiteralPath $ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($updateSettings.appId -ne 'local.tokenatlas.desktop') { throw 'Unexpected application' }
 $targetFile = [IO.Path]::GetFullPath($updateSettings.target)
@@ -11,7 +17,7 @@ $backupFile = $targetFile + '.previous'
 $replacedFile = $false
 $backupMade = $false
 try {
-  if ((Get-FileHash -LiteralPath $downloadFile -Algorithm SHA256).Hash -ne $updateSettings.sha256) { throw 'SHA256 mismatch' }
+  if ((Get-UpdateHash $downloadFile) -ne $updateSettings.sha256) { throw 'SHA256 mismatch' }
   @{pid=$PID;status='ready'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $updateDirectory 'helper-ready.json') -Encoding UTF8
   $waitUntil = [DateTime]::UtcNow.AddSeconds(60)
   while (Get-Process -Id $updateSettings.processToWait -ErrorAction SilentlyContinue) {
@@ -25,7 +31,7 @@ try {
     try { Copy-Item -LiteralPath $downloadFile -Destination $targetFile -Force; $replacedFile = $true; break }
     catch { if ([DateTime]::UtcNow -gt $copyUntil) { throw }; Start-Sleep -Milliseconds 400 }
   }
-  if ((Get-FileHash -LiteralPath $targetFile -Algorithm SHA256).Hash -ne $updateSettings.sha256) { throw 'Installed file hash mismatch' }
+  if ((Get-UpdateHash $targetFile) -ne $updateSettings.sha256) { throw 'Installed file hash mismatch' }
   @{status='success';version=$updateSettings.version} | ConvertTo-Json | Set-Content -LiteralPath $updateSettings.result -Encoding UTF8
   Start-Process -FilePath $targetFile -WorkingDirectory $targetDirectory
 } catch {
