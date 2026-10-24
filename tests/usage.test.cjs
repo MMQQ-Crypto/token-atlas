@@ -25,6 +25,28 @@ test('Codex cumulative counter reset and model switch',()=>{
   const a=parse(token(100,10,50));
   assert.equal(a.total,110);assert.equal(a.model,'second-model');
 });
+
+test('Codex fork headers: embedded parent metadata must not merge independent child usage',()=>{
+  const header=id=>({type:'session_meta',payload:{id,session_id:'parent',forked_from_id:'parent'}});
+  const make=id=>{
+    const parse=createCodexParser(id);parse(header(id));parse({type:'session_meta',payload:{id:'parent',session_id:'parent'}});
+    parse({type:'turn_context',payload:{model:'gpt-test'}});return parse(token(100,20,60));
+  };
+  const parent=createCodexParser('parent');parent(header('parent'));parent({type:'turn_context',payload:{model:'gpt-test'}});
+  const records=deduplicate([parent(token(100,20,60)),make('child-a'),make('child-b')]);
+  assert.equal(records.length,3);assert.deepEqual(new Set(records.map(r=>r.session)),new Set(['parent','child-a','child-b']));
+  assert.equal(records.reduce((sum,r)=>sum+r.total,0),360);
+});
+
+test('Codex copied logs: duplicate snapshots cannot shift IDs and lose distinct requests',()=>{
+  const first=createCodexParser('original'),copy=createCodexParser('archive');
+  for(const parse of [first,copy])parse({type:'session_meta',payload:{id:'same-session'}});
+  const a=first(token(100,20)),b=first({...token(200,30),timestamp:'2026-10-23T08:00:01.000Z'});
+  const aa=copy(token(100,20));assert.equal(copy(token(100,20)),null);
+  const bb=copy({...token(200,30),timestamp:'2026-10-23T08:00:01.000Z'});
+  const result=deduplicate([a,b,aa,bb]);assert.equal(result.length,2);assert.equal(result.reduce((sum,r)=>sum+r.total,0),230);
+  assert.equal(a.id,aa.id);assert.equal(b.id,bb.id);
+});
 test('Claude: streaming duplicate message keeps largest usage and accounts for all cache categories',()=>{
   const row={type:'assistant',timestamp:time,requestId:'req',sessionId:'s',message:{id:'msg',model:'claude-test',usage:{input_tokens:10,output_tokens:5,cache_read_input_tokens:80,cache_creation_input_tokens:20}}};
   const a=parseClaude(row,'f',0);row.message.usage.output_tokens=15;

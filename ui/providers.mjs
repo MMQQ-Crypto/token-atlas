@@ -15,7 +15,7 @@ export const DOMESTIC_PROVIDERS = [
   {id:'yi',name:'零一万物',models:'Yi 系列',pattern:/^yi(?:\d|[-_.]|$)/i}
 ];
 export const FOREIGN_PROVIDERS = [
-  {id:'openai',name:'OpenAI / ChatGPT',models:'GPT / o 系列 / Codex',pattern:/^(?:gpt(?:\d|[-_.])|chatgpt(?:[-_.]|$)|codex(?:[-_.]|$)|o[134](?:[-_.]|$))/i},
+  {id:'openai',name:'OpenAI',models:'GPT / o 系列（含 Codex），按应用分别统计',pattern:/^(?:gpt(?:\d|[-_.])|chatgpt(?:[-_.]|$)|codex(?:[-_.]|$)|o[134](?:[-_.]|$))/i},
   {id:'anthropic',name:'Anthropic / Claude',models:'Claude 系列',pattern:/^claude(?:[-_.]|$)/i},
   {id:'google',name:'Google / Gemini',models:'Gemini / Gemma 系列',pattern:/^(?:gemini|gemma)(?:\d|[-_.]|$)/i},
   {id:'xai',name:'xAI / Grok',models:'Grok 系列',pattern:/^grok(?:\d|[-_.]|$)/i},
@@ -41,6 +41,6 @@ export function matchesProvider(record, filter) {
 export function providerUsage(records,region='all') {
   return ALL_PROVIDERS.filter(p=>region==='all'||p.region===region).map(p=>{
     const rows=records.filter(r=>providerFor(r.model,r.providerHint)===p.id);
-    return {id:p.id,name:p.name,models:p.models,region:p.region,count:rows.length,total:rows.reduce((sum,r)=>sum+r.total,0)};
+    return {id:p.id,name:p.name,models:p.models,region:p.region,count:rows.length,total:rows.reduce((sum,r)=>sum+r.total,0),applications:[...new Set(rows.map(r=>r.source))]};
   });
 }

@@ -1,3 +1,4 @@
+const {createHash}=require('node:crypto');
 const number = v => Number.isSafeInteger(Number(v)) && Number(v) >= 0 ? Number(v) : 0;
 function makeRecord({ id, source, session, timestamp, model, input, output, cacheRead, cacheWrite }) {
   const time = new Date(timestamp).getTime();
@@ -8,10 +9,12 @@ function makeRecord({ id, source, session, timestamp, model, input, output, cach
   return r.total > 0 ? r : null;
 }
 function createCodexParser(file) {
-  let model = '未知模型', session = file, previous = {}, sequence = 0;
+  let model = '未知模型', session = file, previous = {}, ownerAssigned = false;
   return obj => {
     const p = obj.payload || {};
-    if (obj.type === 'session_meta') session = p.id || file;
+    // Fork/subagent rollouts can embed their parent's session_meta after their
+    // own header. The first header owns this file; later history cannot rename it.
+    if (obj.type === 'session_meta' && !ownerAssigned && p.id) { session = p.id; ownerAssigned = true; }
     if (obj.type === 'turn_context') model = p.model || model;
     if (obj.type !== 'event_msg' || p.type !== 'token_count' || !p.info) return null;
     const cumulative = p.info.total_token_usage;
@@ -27,7 +30,11 @@ function createCodexParser(file) {
     else return null;
     const read = Math.min(number(u.cached_input_tokens), number(u.input_tokens));
     // Codex input_tokens already includes cached reads. Reasoning is part of output.
-    return makeRecord({ id: `codex:${session}:${sequence++}`, source: 'codex', session,
+    // Stable event identity also deduplicates copied/archived logs when repeated
+    // zero-delta snapshots change the event's position in a file.
+    const identity=cumulative||last;
+    const eventKey=createHash('sha256').update(JSON.stringify([obj.timestamp,cumulative?'cumulative':'last',...['input_tokens','output_tokens','cached_input_tokens','cache_write_input_tokens'].map(k=>number(identity[k]))])).digest('hex');
+    return makeRecord({ id: `codex:${session}:${eventKey}`, source: 'codex', session,
       timestamp: obj.timestamp, model, input: Math.max(0, number(u.input_tokens) - read),
       output: u.output_tokens, cacheRead: read, cacheWrite: u.cache_write_input_tokens });
   };

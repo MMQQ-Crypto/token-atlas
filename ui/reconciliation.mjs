@@ -18,6 +18,7 @@ export function reconcileUsage(snapshot,{source='',provider='',days=7,now=new Da
     daily:[...summary.daily].sort(([a],[b])=>a.localeCompare(b)).map(([date,total])=>({date,total})),
     notes:[
       '统计范围为本机及已连接/导入记录，不是智谱等平台的账号额度或跨设备完整账单。',
+      'OpenAI 是模型供应商汇总，可包括 Codex 等应用；不等于 ChatGPT 网页或客户端单独的用量。',
       '四个时间范围均采用同一应用和供应商筛选；累计为仍可读取的记录，按本机时区截止今天。',
       '总 Token 含缓存读写，已包含的推理不再相加。ZCode 以 computed_total_tokens 与其用量界面保持一致。',
       '来源读取与跳过计数覆盖整个来源，不受当前供应商或日期筛选；跳过的记录未计入用量。',

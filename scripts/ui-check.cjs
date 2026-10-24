@@ -13,6 +13,7 @@ async function main(){
   await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>document.querySelector('#sync-status').textContent.includes('条用量记录'));
   const stat=()=>page.locator('.stat-value').first().innerText();
   assert.equal(await page.locator('.application-card').count(),2);assert.equal(await page.locator('[data-application="claude"]').count(),0);assert.equal(await stat(),'1,600');
+  assert.equal(await page.locator('[data-provider-card="openai"] h3').innerText(),'OpenAI');assert.ok((await page.locator('[data-provider-card="openai"]').innerText()).includes('来源：Codex'));
   assert.equal(await page.locator('#nav-back').isDisabled(),true);
   async function hoverRing(angle){
     await page.locator('#donut').scrollIntoViewIfNeeded();const b=await page.locator('#donut').boundingBox(),r=b.width*77/200;

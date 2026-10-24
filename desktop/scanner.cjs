@@ -12,7 +12,7 @@ function definitions() {
   const storage = (id) => editors.map(e => path.join(roaming, e, 'User', 'globalStorage', id, 'tasks'));
   return [
     { id: 'deepseek_desktop', name: 'DeepSeek Harness 桌面端', detail: '自动读取 .dsh 压缩会话中的服务端结算 usage，含缓存与重试', paths: [path.join(process.env.DSH_HOME || path.join(home,'.dsh'),'sessions')], kind:'dsh' },
-    { id: 'codex', name: 'Codex', detail: 'CLI 与桌面端会话日志', paths: [path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'sessions'), path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'archived_sessions')], kind: 'jsonl' },
+    { id: 'codex', name: 'Codex', detail: 'CLI 与桌面端会话日志，含子代理；不等于 ChatGPT 网页或客户端的用量', paths: [path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'sessions'), path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'archived_sessions')], kind: 'jsonl' },
     { id: 'zcode', name: 'ZCode', detail: '只读逐请求用量数据库，按记录总数消除缓存重叠；累计范围限本机保留的记录', paths:[path.join(process.env.ZCODE_HOME||path.join(home,'.zcode'),'cli','db')],kind:'zcode' },
     { id: 'claude', name: 'Claude Code', detail: '项目会话与子代理用量', paths: [path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'projects')], kind: 'jsonl' },
     { id: 'cline', name: 'Cline', detail: 'VS Code / Cursor / Windsurf 扩展记录', paths: storage('saoudrizwan.claude-dev'), kind: 'cline' },
