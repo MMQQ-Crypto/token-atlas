@@ -1,6 +1,7 @@
 import { COLORS, NAMES, modelKey, aggregate, compact, dayKey, dayOffset, selectRecords, demoData } from './analytics.mjs';
 import { DOMESTIC_PROVIDERS, FOREIGN_PROVIDERS, providerFor, providerName, matchesProvider, providerUsage } from './providers.mjs';
 import {applicationUsage,scopedRecords,usageCounts} from './applications.mjs';
+import {reconcileUsage,reconciliationText} from './reconciliation.mjs';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const escape = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -8,6 +9,8 @@ const exact = n => n.toLocaleString('zh-CN');
 let snapshot={records:[],sources:[]}, settings={autoRefresh:true,enabled:{},paths:{}}, demo=false, days=7, source='', mode='daily', hiddenModels=new Set(), busy=false;
 let page='overview', provider='', providerRegion='all', toastTimer;
 const bridge = window.tokenAtlas;
+const syncTitlebar=()=>document.documentElement.classList.toggle('native-titlebar',!!navigator.windowControlsOverlay?.visible);
+syncTitlebar();navigator.windowControlsOverlay?.addEventListener('geometrychange',syncTitlebar);
 function toast(text) { $('#toast').textContent=text; $('#toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,3500); }
 function records() { return demo ? demoData() : snapshot.records; }
 function unit(n) { const text=compact(n), match=text.match(/^(.*) (万|亿)$/); return match ? `${escape(match[1])}<small>${match[2]}</small>` : escape(text); }
@@ -109,6 +112,7 @@ function render() {
   renderStats(selected);renderApplications();renderHeatmap(all);renderTrend(selected,summary.models);renderDistribution(summary);renderModels(selected);renderSources();
   $('#demo-banner').hidden=!demo;
   $('#export').disabled=demo||busy;
+  $('#audit-open').disabled=demo||busy;
   $('#range-caption').textContent=days?`${dayKey(dayOffset(new Date(),1-days))} — ${dayKey(new Date())}`:'全部历史记录';
   const present=applicationUsage(snapshot.sources,records()).map(a=>a.id);
   $('#source-filter').innerHTML='<option value="">全部应用</option>'+present.map(id=>`<option value="${id}" ${source===id?'selected':''}>${escape(NAMES[id]||id)}</option>`).join('');
@@ -160,6 +164,19 @@ $('#export').addEventListener('click',async()=>{
   if(!bridge||demo){toast('请在桌面程序中导出真实用量');return;}
   const filter={source,provider,start:days?dayOffset(new Date(),1-days).toISOString():undefined,end:dayOffset(new Date(),1).toISOString()};
   try{if(await bridge.exportCSV(filter))toast('用量记录已导出');}catch(e){toast('导出失败：'+e.message);}
+});
+let auditFilter;
+$('#audit-open').addEventListener('click',()=>{
+  if(demo)return;
+  auditFilter={source,provider,days};
+  $('#audit-scope').textContent=`${source?NAMES[source]||source:'全部应用'} · ${provider?providerName(provider):'全部供应商'} · ${days===1?'今日':days?'近 '+days+' 天':'累计'}`;
+  $('#audit-detail').textContent=reconciliationText(reconcileUsage(snapshot,auditFilter));
+  $('#audit-dialog').showModal();
+});
+$('#audit-close').addEventListener('click',()=>$('#audit-dialog').close());
+$('#audit-export').addEventListener('click',async()=>{
+  if(!bridge?.exportAudit){toast('请在桌面应用中导出核对报告');return;}
+  try{if(await bridge.exportAudit(auditFilter))toast('用量核对报告已导出');}catch(e){toast('导出失败：'+e.message);}
 });
 const tooltip=$('#tooltip');
 function showUpdate(s){

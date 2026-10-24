@@ -30,6 +30,40 @@ test('ZCode: real SQLite/WAL read selects usage columns only and never modifies 
   }finally{db.close();await fs.rm(dir,{recursive:true,force:true});}
 });
 
+test('ZCode: match the official computed ledger when provider totals omit legacy cache tokens',async()=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'atlas-zcode-ledger-')),file=path.join(dir,'db.sqlite');
+  const db=new DatabaseSync(file);
+  try{
+    db.exec('CREATE TABLE model_usage(id TEXT PRIMARY KEY,session_id TEXT,model_id TEXT,started_at INTEGER,input_tokens INTEGER,output_tokens INTEGER,cache_read_input_tokens INTEGER,cache_creation_input_tokens INTEGER,computed_total_tokens INTEGER,provider_total_tokens INTEGER);');
+    const insert=db.prepare('INSERT INTO model_usage VALUES(?,?,?,?,?,?,?,?,?,?)');
+    // The provider counter alone would lose 100M cache tokens on this legacy row.
+    insert.run('legacy','s','glm-5.3',now.getTime(),100000000,100,100000000,0,200000100,100000100);
+    insert.run('sdk6','s','glm-5.3',now.getTime(),100,20,70,10,120,120);
+    insert.run('cache-only','s','glm-5.3',now.getTime(),0,10,50,0,60,10);
+    const read=readZCode(file),ledger=db.prepare('SELECT sum(computed_total_tokens) AS total FROM model_usage').get();
+    assert.equal(read.records.reduce((sum,r)=>sum+r.total,0),ledger.total);
+    assert.equal(read.records[0].cacheRead,100000000);assert.equal(read.skipped,0);
+    assert.equal(read.diagnostics.totalsDisagreeRows,2);
+    insert.run('invalid','s','glm-5.3',now.getTime(),100,20,70,0,999,120);
+    const result=readZCode(file);assert.equal(result.skipped,1);assert.equal(result.diagnostics.skippedComputedTokens,999);
+    assert.equal(result.diagnostics.readRows,4);assert.equal(result.diagnostics.acceptedRows,3);
+    assert.equal(parseZCodeUsage({...base,computed_total_tokens:null,provider_total_tokens:120}).total,120);
+  }finally{db.close();await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('Reconciliation: exact scoped periods, cache breakdown, omitted rows and privacy of exported metadata',async()=>{
+  const {reconcileUsage,reconciliationText}=await import('../ui/reconciliation.mjs');
+  const {dayOffset}=await import('../ui/analytics.mjs');
+  const make=(offset,total,model='glm-5.3')=>({source:'zcode',model,timestamp:dayOffset(now,offset).toISOString(),input:10,output:10,cacheWrite:0,cacheRead:total-20,total,session:'PRIVATE SESSION',id:'PRIVATE ID'});
+  const snapshot={records:[make(0,100),make(-6,200),make(-29,300),make(-30,400),make(0,900,'gpt-4.1'),make(1,999)],sources:[{id:'zcode',name:'ZCode',detected:true,paths:['PRIVATE PATH'],errors:['PRIVATE ERROR'],records:5,total:1900,diagnostics:{skippedRows:1,skippedComputedTokens:999,totalsDisagreeRows:2}}]};
+  const r=reconcileUsage(snapshot,{source:'zcode',provider:'zhipu',days:7,now});
+  assert.deepEqual(r.periods,{today:100,week:300,month:600,lifetime:1000});
+  assert.equal(r.current.total,300);assert.equal(r.current.cacheRead,260);assert.equal(r.coverage.records,4);
+  assert.equal(r.daily.reduce((s,d)=>s+d.total,0),300);assert.equal(r.models.length,1);
+  assert.equal(r.sources[0].diagnostics.skippedComputedTokens,999);assert.equal(r.sources[0].readWarnings,1);
+  assert.ok(!JSON.stringify(r).includes('PRIVATE'));assert.ok(reconciliationText(r).includes('累计可读记录：1,000 tokens'));
+});
+
 test('Application detection: unused catalog entries remain hidden, installed apps without usage stay unknown',async()=>{
   const {applicationUsage}=await import('../ui/applications.mjs');
   const sources=[{id:'codex',name:'Codex',detected:true},{id:'claude',name:'Claude',detected:false},{id:'zcode',name:'ZCode',detected:true}];

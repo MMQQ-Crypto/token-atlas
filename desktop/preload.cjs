@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('tokenAtlas', {
   chooseFolder: id => ipcRenderer.invoke('source:folder', id),
   resetFolder: id => ipcRenderer.invoke('source:reset', id),
   exportCSV: filter => ipcRenderer.invoke('export', filter),
+  exportAudit: filter => ipcRenderer.invoke('audit:export', filter),
   captureStatus:()=>ipcRenderer.invoke('capture:status'),
   startCapture:()=>ipcRenderer.invoke('capture:start'),
   stopCapture:()=>ipcRenderer.invoke('capture:stop'),

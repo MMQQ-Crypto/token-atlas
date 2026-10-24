@@ -45,6 +45,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   win = new BrowserWindow({ width: 1440, height: 1020, minWidth: 960, minHeight: 720, show: !process.env.TOKEN_ATLAS_SMOKE,
     backgroundColor: '#151515', title: 'Token Atlas · AI 用量统计', icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden', titleBarOverlay: { color: '#151515', symbolColor: '#ffffff', height: 36 } } : {}),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -103,6 +104,16 @@ app.whenReady().then(async () => {
     const keys = ['timestamp', 'source', 'model', 'providerName', 'input', 'output', 'cacheRead', 'cacheWrite', 'total'];
     await fs.writeFile(result.filePath, '\ufeff' + ['时间,工具,模型,模型厂商（按模型或响应来源识别）,非缓存输入,输出,缓存读取,缓存写入,总 Token', ...rows.map(r => keys.map(k => csv(k === 'providerName' ? providerName(providerFor(r.model,r.providerHint)) : r[k])).join(','))].join('\r\n'));
     return true;
+  });
+  handle('audit:export',async filter=>{
+    const {reconcileUsage}=await import('../ui/reconciliation.mjs');
+    const report=reconcileUsage(snapshot||await scan(),{
+      source:typeof filter?.source==='string'?filter.source:'',provider:typeof filter?.provider==='string'?filter.provider:'',
+      days:[0,1,7,30].includes(filter?.days)?filter.days:7
+    });
+    const result=await dialog.showSaveDialog(win,{defaultPath:`Token-Atlas-用量核对-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'用量核对报告',extensions:['json']}]});
+    if(result.canceled)return false;
+    await fs.writeFile(result.filePath,JSON.stringify({appVersion:app.getVersion(),...report},null,2));return true;
   });
   await win.loadFile(entry);
   if(!process.env.TOKEN_ATLAS_SMOKE)setTimeout(()=>updater.check(),4000);

@@ -1,12 +1,12 @@
 const {makeRecord}=require('./parsers.cjs');
 const valid=n=>Number.isSafeInteger(n)&&n>=0;
-// ZCode normalizes recent input_tokens as inclusive of caches. Older rows can
-// be exclusive: use the recorded total to disambiguate, never add caches twice.
+// Match ZCode's queryAppUsage ledger: it sums computed_total_tokens, which can
+// differ from provider_total_tokens. Use that total to disambiguate caches.
 function parseZCodeUsage(row){
   if(!row.id||!row.session_id||!valid(row.started_at))return null;
   const input=row.input_tokens,output=row.output_tokens,read=row.cache_read_input_tokens??0,write=row.cache_creation_input_tokens??0;
   if(![input,output,read,write].every(valid))return null;
-  const total=valid(row.provider_total_tokens)&&row.provider_total_tokens>0?row.provider_total_tokens:row.computed_total_tokens;
+  const total=valid(row.computed_total_tokens)&&row.computed_total_tokens>0?row.computed_total_tokens:row.provider_total_tokens;
   if(!valid(total)||total===0)return null;
   let uncached;
   if(total===input+output+read+write)uncached=input;
@@ -25,10 +25,18 @@ function readZCode(file){
     const optional=['cache_read_input_tokens','cache_creation_input_tokens','provider_total_tokens'];
     const selection=[...required,...optional.filter(c=>columns.has(c))].join(',');
     const records=[];let skipped=0;
+    const diagnostics={readRows:0,acceptedRows:0,skippedRows:0,skippedComputedTokens:0,totalsDisagreeRows:0};
     for(const row of db.prepare(`SELECT ${selection} FROM model_usage`).iterate()){
-      const r=parseZCodeUsage(row);if(r)records.push(r);else if(row.input_tokens>0||row.output_tokens>0)skipped++;
+      diagnostics.readRows++;
+      if(valid(row.computed_total_tokens)&&valid(row.provider_total_tokens)&&row.computed_total_tokens!==row.provider_total_tokens)diagnostics.totalsDisagreeRows++;
+      const r=parseZCodeUsage(row);
+      if(r){records.push(r);diagnostics.acceptedRows++;}
+      else if(row.input_tokens>0||row.output_tokens>0||row.cache_read_input_tokens>0||row.cache_creation_input_tokens>0||row.computed_total_tokens>0){
+        skipped++;diagnostics.skippedRows++;
+        if(valid(row.computed_total_tokens))diagnostics.skippedComputedTokens+=row.computed_total_tokens;
+      }
     }
-    return {records,skipped};
+    return {records,skipped,diagnostics};
   }finally{db.close();}
 }
 module.exports={parseZCodeUsage,readZCode};

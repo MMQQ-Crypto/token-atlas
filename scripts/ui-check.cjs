@@ -19,6 +19,8 @@ async function main(){
   await page.screenshot({path:path.join(output,'application-drilldown.png'),fullPage:true});
   await page.locator('[data-provider-card="zhipu"]').click();assert.equal(await page.locator('#model-table tr').count(),1);assert.ok((await page.locator('#model-table').innerText()).includes('1,000'));assert.ok(!(await page.locator('#model-table').innerText()).includes('claude'));
   await page.locator('[data-days="30"]').click();assert.ok((await page.locator('#model-table').innerText()).includes('3,000'));await page.locator('#export').click();assert.equal(await page.evaluate(()=>window.lastExportFilter.source),'zcode');assert.equal(await page.evaluate(()=>window.lastExportFilter.provider),'zhipu');
+  await page.locator('#audit-open').click();assert.ok((await page.locator('#audit-scope').innerText()).includes('智谱 GLM'));
+  const audit=await page.locator('#audit-detail').innerText();assert.ok(audit.includes('当前筛选：2 条记录 / 3,000 tokens'));assert.ok(audit.includes('累计可读记录：7,000 tokens'));await page.locator('#audit-close').click();
   await page.locator('#application-back').click();assert.equal(await stat(),'3,800');
   for(const [days,total] of [['1','1,100'],['7','1,600'],['30','3,800'],['0','8,100']]){await page.locator('[data-days="'+days+'"]').click();assert.equal(await stat(),total);}
   await page.locator('#provider-region [data-region="foreign"]').click();assert.equal(await page.locator('.provider-card').count(),2);assert.equal(await page.locator('[data-provider-card="zhipu"]').count(),0);await page.locator('#provider-region [data-region="all"]').click();

@@ -60,7 +60,8 @@ class Scanner {
           if (parsed?.fingerprint !== fingerprint) {
             const rows = [];
             let malformed = 0;
-            if(def.kind==='zcode'){const result=readZCode(file);rows.push(...result.records);malformed=result.skipped;}
+            let diagnostics;
+            if(def.kind==='zcode'){const result=readZCode(file);rows.push(...result.records);malformed=result.skipped;diagnostics=result.diagnostics;}
             else if (def.kind === 'jsonl' || def.kind==='dsh') {
               const parse = def.kind==='dsh' ? createDeepSeekParser(file) : def.id === 'codex' ? createCodexParser(file) : (obj, i) => parseClaude(obj, file, i);
               const input=fs.createReadStream(file);
@@ -77,11 +78,15 @@ class Scanner {
                 if (r) rows.push(r);
               }
             } else rows.push(...parseCline(JSON.parse(await fsp.readFile(file, 'utf8')), file, def.id));
-            parsed = { fingerprint, records: rows, malformed };
+            parsed = { fingerprint, records: rows, malformed, diagnostics };
             this.cache.set(file, parsed);
           }
           records.push(...parsed.records);
-          if (parsed.malformed) source.errors.push(`${path.basename(file)}：跳过 ${parsed.malformed} 行未完成或损坏的记录`);
+          if(parsed.diagnostics){
+            source.diagnostics||={};
+            for(const [key,value] of Object.entries(parsed.diagnostics))source.diagnostics[key]=(source.diagnostics[key]||0)+value;
+          }
+          if (parsed.malformed) source.errors.push(`${path.basename(file)}：跳过 ${parsed.malformed} 行${def.kind==='zcode'?'计数或时间无效的用量':'未完成或损坏的'}记录`);
         } catch (e) { source.errors.push(`${path.basename(file)}：${e.code || e.message}`); }
       }
       const unique = deduplicate(records);
