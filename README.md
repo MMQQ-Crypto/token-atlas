@@ -1,14 +1,16 @@
-# Token Atlas 1.5.4
+# Token Atlas 1.5.5
 
 Windows 10 / 11（64 位）本地 AI Token 统计应用。包括活动热力图、每日趋势、模型占比、输入/输出/缓存构成、厂商筛选、模型明细、CSV 导出和真实用量采集。
 
 ## 使用
 
-从 [GitHub 最新发布](https://github.com/MMQQ-Crypto/token-atlas/releases/latest) 下载并双击 `Token-Atlas-1.5.4-Windows-x64.exe`，无需安装 Node.js。升级保留原有设置和用量记录。
+从 [GitHub 最新发布](https://github.com/MMQQ-Crypto/token-atlas/releases/latest) 下载并双击 `Token-Atlas-1.5.5-Windows-x64.exe`，无需安装 Node.js。升级保留原有设置和用量记录。
 
 首页自动显示检测到的 Agent 应用，不列出不存在的应用。每个应用同时展示今日、近 7 天、近 30 天和累计 Token；点击应用，进入该应用的供应商用量，再点击供应商查看模型明细。全局汇总 Token、模型数、应用数、供应商数和用量记录数。总览、模型明细与 CSV 共享同一应用、供应商和时间范围。活动热力图单独展示当前应用及供应商过去一年的历史。
 
 Windows 标题栏跟随应用深色背景，最小化、最大化和关闭使用白色系统图标，保留窗口拖动与系统窗口控件。
+
+每日趋势图采用平滑曲线，经过每天的真实数据点，转折处自然弯曲。曲线不会超出相邻两天的数值范围，零用量保持为零；悬停仍显示对应日期的真实数值。
 
 Token Atlas 左侧的箭头用于返回上一级：模型明细返回应用用量，应用用量返回全部应用，保留所选时间范围。点击名称可直接回到全局总览。鼠标移到圆环图的颜色上，即时显示对应模型、供应商、应用、精确 Token 数、占比及输入/输出/缓存明细；也可用 Tab 聚焦颜色查看。
 
@@ -93,11 +95,11 @@ npm run dist
 
 已实测本机 DeepSeek Harness 日志、桌面启动和 CSV 导出；其他国内官网是否返回 usage 仍取决于其实际协议，不能宣称全部官网都已验证或必定可统计。
 
-## 应用内更新（1.5.4）
+## 应用内更新（1.5.5）
 
 启动应用后会检查 GitHub，也可以点击右上角“检查更新”。发现新版后，点击下载，完成 SHA-256 与大小校验后点击“更新并重启”。免安装版会关闭当前应用、备份原 EXE、覆盖更新并重新打开，设置和采集记录保留在原用户目录。备份保存在原程序旁的 `.previous` 文件。运行目录需要允许当前用户写入；源码 / 解压目录运行只支持检查与下载，覆盖更新需从免安装 EXE 启动。
 
-更新源为独立仓库 MMQQ-Crypto/token-atlas，直接读取公开的 `/releases/latest/download/token-atlas-update.json`，不调用受共享 IP 额度限制的 REST API。清单必须是本项目的 Windows x64 正式版本，下载地址须精确匹配同一仓库的 v 版本标签，大小和 SHA-256 均校验通过后才能安装。网络异常时可用“打开发布页”手动下载。1.4.0 的检查若已受限，请手动下载并运行 1.5.4 一次，之后使用新逻辑。
+更新源为独立仓库 MMQQ-Crypto/token-atlas，直接读取公开的 `/releases/latest/download/token-atlas-update.json`，不调用受共享 IP 额度限制的 REST API。清单必须是本项目的 Windows x64 正式版本，下载地址须精确匹配同一仓库的 v 版本标签，大小和 SHA-256 均校验通过后才能安装。网络异常时可用“打开发布页”手动下载。1.4.0 的检查若已受限，请手动下载并运行 1.5.5 一次，之后使用新逻辑。
 
 公开下载地址遵循 [GitHub 发布链接说明](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)。Gemini 用量拆分遵循 [Google UsageMetadata 文档](https://ai.google.dev/api/generate-content#UsageMetadata)，缺少字段或总数不一致时不生成记录。
 

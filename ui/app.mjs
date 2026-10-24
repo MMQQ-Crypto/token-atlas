@@ -2,6 +2,7 @@ import { COLORS, NAMES, modelKey, aggregate, compact, dayKey, dayOffset, selectR
 import { DOMESTIC_PROVIDERS, FOREIGN_PROVIDERS, providerFor, providerName, matchesProvider, providerUsage } from './providers.mjs';
 import {applicationUsage,scopedRecords,usageCounts} from './applications.mjs';
 import {reconcileUsage,reconciliationText} from './reconciliation.mjs';
+import {smoothPath} from './chart-path.mjs';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const escape = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -73,7 +74,7 @@ function renderTrend(selected, models) {
   for(let i=0;i<4;i++){const val=max*i/3,yy=y(val);svg+=`<line x1="${left}" x2="${width-right}" y1="${yy}" y2="${yy}" stroke="#363638" stroke-dasharray="3 5"/><text x="${left-12}" y="${yy+4}" text-anchor="end" fill="#81818a" font-size="10">${escape(compact(Math.round(val)))}</text>`;}
   const count=Math.min(8,dates.length);
   for(let i=0;i<count;i++){const index=count===1?0:Math.round(i*(dates.length-1)/(count-1)),date=new Date(dates[index]+'T00:00:00');svg+=`<text x="${x(index)}" y="${height-7}" text-anchor="${i===0?'start':i===count-1?'end':'middle'}" fill="#8c8c95" font-size="11">${date.getMonth()+1}月${date.getDate()}日</text>`;}
-  for(const m of series){const points=dates.map((date,i)=>`${x(i)},${y(m.values.get(date)||0)}`).join(' ');svg+=`<polyline points="${points}" fill="none" stroke="${m.color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;if(dates.length===1)svg+=`<circle cx="${x(0)}" cy="${y(m.values.get(dates[0])||0)}" r="4" fill="${m.color}"/>`;}
+  for(const m of series){const points=dates.map((date,i)=>[x(i),y(m.values.get(date)||0)]);svg+=`<path class="trend-series" d="${smoothPath(points)}" fill="none" stroke="${m.color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;if(dates.length===1)svg+=`<circle cx="${x(0)}" cy="${y(m.values.get(dates[0])||0)}" r="4" fill="${m.color}"/>`;}
   for(let i=0;i<dates.length;i++){const tips=`${dates[i]}\n`+series.map(m=>`${m.name}：${exact(m.values.get(dates[i])||0)}`).join('\n');const cellWidth=pw/Math.max(1,dates.length-1);svg+=`<rect x="${Math.max(left,x(i)-cellWidth/2)}" y="${top}" width="${Math.min(cellWidth,width-right-Math.max(left,x(i)-cellWidth/2))}" height="${ph}" fill="transparent" data-tooltip="${escape(tips)}"/>`;}
   $('#trend-chart').innerHTML=`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="每日各模型 Token 趋势">${svg}</svg>`;
 }

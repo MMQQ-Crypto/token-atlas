@@ -49,8 +49,30 @@ async function main(){
   await page.locator('#updates-check').click();assert.ok((await page.locator('#updates-message').innerText()).includes('1.5.0'));await page.locator('#updates-download').click();assert.equal(await page.locator('#updates-install').isEnabled(),true);await page.locator('#updates-close').click();
   await page.locator('#demo').click();assert.equal(await page.locator('#demo-banner').isVisible(),true);assert.equal(await page.locator('#export').isDisabled(),true);await page.locator('#exit-demo').click();
   await page.setViewportSize({width:960,height:800});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'applications-compact.png'),fullPage:true});
+  const curveValues=[5800,2200,1200,1700,4100,2500,8000];
+  const curveData={...data,records:curveValues.map((total,i)=>make('curve-'+i,'codex','gpt-fixture',i-6,total))};
+  await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},curveData);await page.locator('#refresh').click();await page.locator('[data-days="7"]').click();await page.setViewportSize({width:1440,height:1000});
+  const checkGeometry=(path,values)=>{
+    const d=path.getAttribute('d'),max=Math.max(...values)*1.13,y=v=>217-v/max*204;
+    let bounded=true,forward=true,previousX=-Infinity;
+    for(let i=0;i<=600;i++){
+      const p=path.getPointAtLength(path.getTotalLength()*i/600),segment=Math.max(0,Math.min(values.length-2,Math.floor((p.x-58)/1128*(values.length-1))));
+      const low=Math.min(y(values[segment]),y(values[segment+1])),high=Math.max(y(values[segment]),y(values[segment+1]));
+      if(p.y<low-.001||p.y>high+.001)bounded=false;if(p.x<previousX-.001)forward=false;previousX=p.x;
+    }
+    const endpoints=d.split(/\s*C/).map(s=>s.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi).map(Number).slice(-2));
+    return {cubic:d.includes(' C'),finite:!/(NaN|Infinity)/.test(d),bounded,forward,faithful:endpoints.every(([x,yy],i)=>Math.abs(x-(58+i*1128/(values.length-1)))<.001&&Math.abs(yy-y(values[i]))<.001)};
+  };
+  const geometry=await page.locator('.trend-series').evaluate(checkGeometry,curveValues);
+  assert.deepEqual(geometry,{cubic:true,finite:true,bounded:true,forward:true,faithful:true});
+  await page.locator('#trend-chart [data-tooltip]').last().hover();assert.ok((await page.locator('#tooltip').innerText()).includes('gpt-fixture：8,000'));
+  await page.mouse.move(1,1);await page.locator('.trend-panel').screenshot({path:path.join(output,'smooth-trend.png')});
+  const zeroValues=[0,100,0,0,0,100,20],zeroData={...data,records:zeroValues.map((total,i)=>make('zero-'+i,'codex','gpt-fixture',i-6,total)).filter(r=>r.total>0)};
+  await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},zeroData);await page.locator('#refresh').click();
+  assert.deepEqual(await page.locator('.trend-series').evaluate(checkGeometry,zeroValues),{cubic:true,finite:true,bounded:true,forward:true,faithful:true});
+  await page.locator('[data-days="1"]').click();assert.equal(await page.locator('#trend-chart circle').count(),1);assert.ok(!(await page.locator('.trend-series').getAttribute('d')).includes(' C'));
   await page.evaluate(()=>{window.tokenAtlas.scan=async()=>({records:[],sources:[],updatedAt:new Date().toISOString()});});await page.locator('#refresh').click();assert.equal(await page.locator('.donut-segment').count(),0);assert.equal(await page.locator('#tooltip').isHidden(),true);
-  assert.deepEqual(errors,[]);console.log('PASS: parent navigation button; each donut color, single full ring, center and keyboard focus; exact date/scoped totals and audit; export; update interaction; empty chart; 960px layout.');
+  assert.deepEqual(errors,[]);console.log('PASS: smooth curve follows each daily value, stays within neighboring values, preserves zero and single-day cases; back navigation; donut hover; exact/scoped totals; export and audit; update interaction; empty chart; 960px layout.');
  }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
