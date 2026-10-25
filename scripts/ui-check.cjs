@@ -11,6 +11,7 @@ async function main(){
   browser=await chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||'msedge'});const page=await browser.newPage({viewport:{width:1440,height:1180}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(data=>{let settings={autoRefresh:true,enabled:{},paths:{}};window.tokenAtlas={scan:async()=>data,getSettings:async()=>settings,updateSettings:async next=>(settings=next),chooseFolder:async()=>null,captureStatus:async()=>({running:false,url:'http://127.0.0.1:46137'}),startCapture:async()=>({running:true,url:'http://127.0.0.1:46137'}),stopCapture:async()=>({running:false,url:'http://127.0.0.1:46137'}),importUsage:async()=>({found:1,added:1}),exportCSV:async filter=>{window.lastExportFilter=filter;return true;},openRelease:async()=>{window.releaseOpened=true;},checkUpdate:async()=>({currentVersion:'1.4.0',status:'error',error:'GitHub 拒绝访问（403）',progress:0})};},data);
   await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>document.querySelector('#sync-status').textContent.includes('条用量记录'));
+  async function clickAction(selector){await page.locator('#more-actions > summary').click();await page.locator(selector).click();assert.equal(await page.locator('#more-actions').getAttribute('open'),null);}
   const stat=()=>page.locator('.stat-value').first().innerText();
   assert.equal(await page.locator('.application-card').count(),2);assert.equal(await page.locator('[data-application="claude"]').count(),0);assert.equal(await stat(),'1,600');
   assert.equal(await page.locator('[data-provider-card="openai"] h3').innerText(),'OpenAI');assert.ok((await page.locator('[data-provider-card="openai"]').innerText()).includes('来源：Codex'));
@@ -36,8 +37,8 @@ async function main(){
   await page.locator('[data-application="zcode"]').click();assert.ok((await page.locator('#page-title').innerText()).includes('ZCode'));assert.equal(await stat(),'1,500');assert.equal(await page.locator('.provider-card').count(),2);
   await page.screenshot({path:path.join(output,'application-drilldown.png'),fullPage:true});
   await page.locator('[data-provider-card="zhipu"]').click();assert.equal(await page.locator('#model-table tr').count(),1);assert.ok((await page.locator('#model-table').innerText()).includes('1,000'));assert.ok(!(await page.locator('#model-table').innerText()).includes('claude'));
-  await page.locator('[data-days="30"]').click();assert.ok((await page.locator('#model-table').innerText()).includes('3,000'));await page.locator('#export').click();assert.equal(await page.evaluate(()=>window.lastExportFilter.source),'zcode');assert.equal(await page.evaluate(()=>window.lastExportFilter.provider),'zhipu');
-  await page.locator('#audit-open').click();assert.ok((await page.locator('#audit-scope').innerText()).includes('智谱 GLM'));
+  await page.locator('[data-days="30"]').click();assert.ok((await page.locator('#model-table').innerText()).includes('3,000'));await clickAction('#export');assert.equal(await page.evaluate(()=>window.lastExportFilter.source),'zcode');assert.equal(await page.evaluate(()=>window.lastExportFilter.provider),'zhipu');
+  await clickAction('#audit-open');assert.ok((await page.locator('#audit-scope').innerText()).includes('智谱 GLM'));
   const audit=await page.locator('#audit-detail').innerText();assert.ok(audit.includes('当前筛选：2 条记录 / 3,000 tokens'));assert.ok(audit.includes('累计可读记录：7,000 tokens'));await page.locator('#audit-close').click();
   await page.locator('#nav-back').click();assert.equal(await page.locator('#source-filter').inputValue(),'zcode');assert.equal(await page.locator('#provider-filter').inputValue(),'');assert.equal(await page.locator('#overview-page').isVisible(),true);assert.equal(await stat(),'3,500');
   await page.locator('#nav-back').click();assert.equal(await stat(),'3,800');assert.equal(await page.locator('#nav-back').isDisabled(),true);
@@ -48,20 +49,26 @@ async function main(){
   await page.locator('#nav-back').click();assert.equal(await page.locator('#overview-page').isVisible(),true);await page.locator('#updates-open').click();assert.ok((await page.locator('#updates-detail').innerText()).includes('403'));await page.locator('#updates-release').click();assert.equal(await page.evaluate(()=>window.releaseOpened),true);
   await page.evaluate(()=>{const s={currentVersion:'1.4.0',availableVersion:'1.5.0',notes:'Fixture',progress:0,error:'',canInstall:true};window.tokenAtlas.checkUpdate=async()=>({...s,status:'available'});window.tokenAtlas.downloadUpdate=async()=>({...s,status:'ready',progress:100});});
   await page.locator('#updates-check').click();assert.ok((await page.locator('#updates-message').innerText()).includes('1.5.0'));await page.locator('#updates-download').click();assert.equal(await page.locator('#updates-install').isEnabled(),true);await page.locator('#updates-close').click();
-  await page.locator('#demo').click();assert.equal(await page.locator('#demo-banner').isVisible(),true);assert.equal(await page.locator('#export').isDisabled(),true);await page.locator('#exit-demo').click();
-  await page.setViewportSize({width:960,height:680});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'applications-compact.png')});
+  await clickAction('#demo');assert.equal(await page.locator('#demo-banner').isVisible(),true);assert.equal(await page.locator('#export').isDisabled(),true);await page.locator('#exit-demo').click();
+  await page.setViewportSize({width:960,height:680});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.evaluate(()=>{document.querySelector('#toast').hidden=true;scrollTo(0,0);});await page.screenshot({path:path.join(output,'applications-compact.png')});
   await page.locator('#updates-open').click();assert.equal(await page.locator('#updates-close').isVisible(),true);assert.equal(await page.locator('#updates-check').isVisible(),true);await page.locator('#updates-close').click();
-  await page.locator('#audit-open').click();assert.equal(await page.locator('#audit-close').isVisible(),true);assert.equal(await page.locator('#audit-export').isVisible(),true);await page.locator('#audit-close').click();
+  await clickAction('#audit-open');assert.equal(await page.locator('#audit-close').isVisible(),true);assert.equal(await page.locator('#audit-export').isVisible(),true);await page.locator('#audit-close').click();
+  assert.equal(await page.locator('.activity-panel').getAttribute('open'),null);await page.locator('.activity-panel > summary').click();
+  await page.locator('[data-mode="weekly"]').click();assert.equal(await page.locator('[data-mode="weekly"]').getAttribute('class'),'selected');assert.equal(await page.locator('#heatmap').isVisible(),true);await page.locator('.activity-panel > summary').click();
+  await page.locator('.usage-details > summary').click();assert.equal(await page.locator('#usage-summary').isVisible(),true);await page.locator('.usage-details > summary').click();
+  await page.locator('#more-actions > summary').click();await page.keyboard.press('Escape');assert.equal(await page.locator('#more-actions').getAttribute('open'),null);assert.equal(await page.locator('#more-actions > summary').evaluate(e=>e===document.activeElement),true);
   const reviewData={...data,records:[{...make('model','codex','gpt-6.1-sol',0,1000),input:90,cacheRead:900},make('review','codex','codex-auto-review',0,100)]};
   await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},reviewData);await page.locator('#refresh').click();
   assert.equal(await stat(),'1,100');assert.equal(await page.locator('.stat-value').nth(1).innerText(),'1个');
+  await page.locator('.usage-details > summary').click();
   assert.ok((await page.locator('#usage-summary').innerText()).includes('缓存读取 900 tokens'));assert.ok((await page.locator('#usage-summary').innerText()).includes('系统审核 100 tokens'));
+  await page.locator('.usage-details > summary').click();
   assert.ok((await page.locator('#chart-legend').innerText()).includes('自动审核（系统记录）'));assert.ok(!(await page.locator('#chart-legend').innerText()).includes('codex-auto-review'));
   await page.locator('[data-page="models"]').click();assert.equal(await page.locator('#model-table tr').count(),1);
   const modelText=await page.locator('#model-table').innerText();assert.ok(modelText.includes('gpt-6.1-sol'));assert.ok(modelText.includes('供应商：OpenAI · 来源应用：Codex'));assert.ok(!modelText.includes('codex-auto-review'));
-  assert.equal(await page.locator('#system-usage-section').isVisible(),true);assert.equal(await page.locator('#system-usage-table tr').count(),1);assert.ok((await page.locator('#system-usage-table').innerText()).includes('实际模型未披露'));
+  assert.equal(await page.locator('#system-usage-section').isVisible(),true);assert.equal(await page.locator('#system-usage-table tr').count(),1);assert.ok((await page.locator('#system-usage-table').innerText()).includes('实际模型未披露'));await page.evaluate(()=>document.querySelector('#toast').hidden=true);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'model-system-separation.png'),fullPage:true});
-  await page.locator('#audit-open').click();assert.ok((await page.locator('#audit-detail').innerText()).includes('其中系统审核：1 条 / 100 tokens'));await page.locator('#audit-close').click();await page.locator('#nav-back').click();
+  await clickAction('#audit-open');assert.ok((await page.locator('#audit-detail').innerText()).includes('其中系统审核：1 条 / 100 tokens'));await page.locator('#audit-close').click();await page.locator('#nav-back').click();
   const curveValues=[5800,2200,1200,1700,4100,2500,8000];
   const curveData={...data,records:curveValues.map((total,i)=>make('curve-'+i,'codex','gpt-fixture',i-6,total))};
   await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},curveData);await page.locator('#refresh').click();await page.locator('[data-days="7"]').click();await page.setViewportSize({width:1440,height:1000});
@@ -84,6 +91,7 @@ async function main(){
   await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},zeroData);await page.locator('#refresh').click();
   assert.deepEqual(await page.locator('.trend-series').evaluate(checkGeometry,zeroValues),{cubic:true,finite:true,bounded:true,forward:true,faithful:true});
   await page.locator('[data-days="1"]').click();assert.equal(await page.locator('#trend-chart circle').count(),1);assert.ok(!(await page.locator('.trend-series').getAttribute('d')).includes(' C'));
+  for(const viewport of [{width:960,height:680},{width:390,height:844}]){await page.setViewportSize(viewport);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.locator('#more-actions > summary').click();assert.equal(await page.locator('#audit-open').isVisible(),true);await page.keyboard.press('Escape');}
   await page.evaluate(()=>{window.tokenAtlas.scan=async()=>({records:[],sources:[],updatedAt:new Date().toISOString()});});await page.locator('#refresh').click();assert.equal(await page.locator('.donut-segment').count(),0);assert.equal(await page.locator('#tooltip').isHidden(),true);
   assert.equal(await page.locator('#system-usage-section').isHidden(),true);assert.equal(await page.locator('#system-usage-table tr').count(),0);
   assert.deepEqual(errors,[]);console.log('PASS: smooth curve follows each daily value, stays within neighboring values, preserves zero and single-day cases; back navigation; donut hover; exact/scoped totals; export and audit; update interaction; empty chart; 960px layout.');

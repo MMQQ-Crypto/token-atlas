@@ -19,17 +19,19 @@ function renderStats(all) {
   const a=aggregate(all);
   const c=usageCounts(all),label=days===1?'今日':days?`近 ${days} 天`:'累计';
   const unknown=source&&!applicationUsage(snapshot.sources,records()).find(a=>a.id===source)?.hasUsage;
-  const items=[[unit(a.totals.total),label+' Token 总用量'],[`${c.models}<small>个</small>`,'已识别模型数'],[`${c.applications}<small>个</small>`,'有用量的 Agent 应用'],[`${c.providers}<small>家</small>`,'模型供应商'],[unit(c.requests),'用量记录数']];
+  const items=[[unit(a.totals.total),label+' Token 总用量'],[`${c.models}<small>个</small>`,'已识别模型数'],[`${c.applications}<small>个</small>`,'有用量应用'],[`${c.providers}<small>家</small>`,'模型供应商'],[unit(c.requests),'用量记录数']];
   $('#stats').innerHTML=items.map(([value,label])=>`<div class="stat"><div class="stat-value">${unknown?'—':value}</div><div class="stat-label">${label}</div></div>`).join('');
+  $('#usage-preview').textContent=all.length?`缓存读取占 ${(a.totals.cacheRead/(a.totals.total||1)*100).toFixed(1)}%${a.system.records?'，含系统审核':''}`:'本机及已导入记录';
   $('#usage-summary').textContent=all.length?`总量含缓存读取 ${exact(a.totals.cacheRead)} tokens（${(a.totals.cacheRead/(a.totals.total||1)*100).toFixed(1)}%）${a.system.records?`；其中系统审核 ${exact(a.system.total)} tokens，已含在总量中，不计入已识别模型数。`:'。'}`:'';
 }
 function renderApplications(){
   const apps=applicationUsage(snapshot.sources,records());
   $('#applications-section').hidden=!!source;
-  $('#applications-summary').textContent=`检测到 ${apps.length} 个应用 · 点击进入供应商与模型明细`;
-  $('#application-list').innerHTML=apps.map(a=>`<button class="application-card" data-application="${escape(a.id)}"><div class="application-heading"><strong>${escape(a.name)}</strong><span class="source-badge ${a.hasUsage?'':'unavailable'}">${a.hasUsage?'已读取真实用量':a.enabled===false?'已停用':'已检测到'}</span></div><div class="application-periods">${[['今日',a.today],['近 7 天',a.week],['近 30 天',a.month],['累计',a.total]].map(([label,total])=>`<div><small>${label}</small><span title="${a.hasUsage?exact(total)+' tokens':'尚未取得真实用量'}">${a.hasUsage?escape(compact(total)):'—'}</span></div>`).join('')}</div><p>${a.hasUsage?`${a.models} 个模型 · 查看应用用量`:'尚未取得真实 Token 记录 · 查看接入状态'}</p></button>`).join('')||'<p class="help-copy">尚未检测到受支持的 Agent 记录。使用应用后刷新，或在数据来源中添加已有记录文件夹。</p>';
+  $('#applications-summary').textContent=`${apps.length} 个已检测应用`;
+  $('#application-list').innerHTML=apps.map(a=>`<button class="application-card" data-application="${escape(a.id)}"><span class="application-heading"><strong>${escape(a.name)}</strong><span class="application-status ${a.hasUsage?'':'unavailable'}"><i></i>${a.hasUsage?`${a.models} 个已识别模型`:a.enabled===false?'已停用':'尚未取得真实记录'}</span></span><span class="application-periods">${[['今日',a.today],['近 7 天',a.week],['近 30 天',a.month],['累计',a.total]].map(([label,total])=>`<span><small class="sr-only">${label}</small><span title="${a.hasUsage?exact(total)+' tokens':'尚未取得真实用量'}">${a.hasUsage?escape(compact(total)):'—'}</span></span>`).join('')}</span><span class="row-chevron" aria-hidden="true">›</span></button>`).join('')||'<p class="help-copy">尚未发现用量记录。可在“数据来源”连接已有记录文件夹。</p>';
   $('#application-back').hidden=!source;
-  $('#application-scope').textContent=source?`${NAMES[source]||source} / ${provider?providerName(provider):'全部供应商'}`:'全局总览 / 全部应用';
+  $('.application-breadcrumb').hidden=!source&&!provider;
+  $('#application-scope').textContent=source?`${NAMES[source]||source}${provider?' / '+providerName(provider):''}`:providerName(provider);
 }
 function renderHeatmap(all) {
   const daily=aggregate(all).daily, today=dayOffset(new Date(),0), start=dayOffset(today,-364);
@@ -109,8 +111,8 @@ function renderSources() {
   const scoped=scopedRecords(records(),{source,days}),platforms=providerUsage(scoped,providerRegion).filter(p=>p.count);
   const unassigned=scoped.filter(r=>providerFor(r.model,r.providerHint)==='unknown');
   if(providerRegion==='all'&&unassigned.length)platforms.push({id:'unknown',name:'未识别供应商',models:'原始记录缺少可识别的模型或来源',region:'unknown',count:unassigned.length,total:unassigned.reduce((s,r)=>s+r.total,0)});
-  $('#provider-platform-summary').textContent=`${source?NAMES[source]||source:'全部应用'} · ${platforms.length} 个已使用供应商 · ${days===1?'今日':days?'近 '+days+' 天':'累计'}`;
-  $('#domestic-platforms').innerHTML=platforms.map(p=>`<button class="domestic-card provider-card" data-region="${p.region}" data-provider-card="${p.id}"><div class="domestic-card-heading"><h3>${escape(p.name)}</h3><span class="source-badge">${p.id===provider?'正在查看':'查看模型'}</span></div><p>${escape(p.models)}</p><div class="domestic-value" title="${exact(p.total)} tokens">${escape(compact(p.total))} <small>真实 tokens</small></div><div class="domestic-status">${exact(p.count)} 条用量记录${p.applications?.length?'<br>来源：'+p.applications.map(id=>escape(NAMES[id]||id)).join('、'):''}</div></button>`).join('')||'<p class="help-copy">当前应用、地区或时段没有真实用量记录。</p>';
+  $('#provider-platform-summary').textContent=`${platforms.length} 个供应商，点击查看模型`;
+  $('#domestic-platforms').innerHTML=platforms.map(p=>`<button class="domestic-card provider-card" data-region="${p.region}" data-provider-card="${p.id}" title="${escape(p.models)}"><span class="provider-identity"><h3>${escape(p.name)}</h3><span class="domestic-status">${exact(p.count)} 条记录${p.applications?.length?' · 来源：'+p.applications.map(id=>escape(NAMES[id]||id)).join('、'):''}</span></span><span class="domestic-value" title="${exact(p.total)} tokens">${escape(compact(p.total))}<small>tokens</small></span><span class="row-chevron" aria-hidden="true">›</span></button>`).join('')||'<p class="help-copy">当前筛选下没有供应商用量。</p>';
   $('#auto-refresh').checked=settings.autoRefresh;
   const visible=applicationUsage(snapshot.sources,snapshot.records);
   $('#sources-list').innerHTML=visible.map(s=>{
@@ -125,6 +127,9 @@ function render() {
   const vendorRecords=records().filter(r=>matchesProvider(r,provider));
   const all=vendorRecords.filter(r=>!source||r.source===source), selected=selectRecords(vendorRecords,source,days), summary=aggregate(selected);
   renderStats(selected);renderApplications();renderHeatmap(all);renderTrend(selected,summary.models);renderDistribution(summary);renderModels(selected);renderSources();
+  // An application's suppliers are its next drilldown; globally the trend comes first.
+  const providerPanel=$('.domestic-panel'),providerAnchor=source?$('.trend-panel'):$('.activity-panel');
+  if(providerPanel.nextElementSibling!==providerAnchor)providerAnchor.before(providerPanel);
   $('#demo-banner').hidden=!demo;
   $('#export').disabled=demo||busy;
   $('#audit-open').disabled=demo||busy;
@@ -140,7 +145,7 @@ function render() {
   $('#provider-empty').textContent=`${provider==='domestic'?'国内模型':providerName(provider)}：当前条件下尚未采集到真实用量。可在「数据来源」连接网页采集或导入带 usage 的响应记录；缺少用量字段的数据不计数。`;
   $('#sync-status').textContent=demo?'示例数据 · 自动刷新已暂停':snapshot.updatedAt?`上次读取 ${new Date(snapshot.updatedAt).toLocaleTimeString('zh-CN')} · ${exact(snapshot.records.length)} 条用量记录${settings.autoRefresh?' · 每分钟刷新':''}`:'尚未读取本地记录';
   $('#models-scope').textContent=`${source?NAMES[source]||source:'全部应用'} · ${provider?providerName(provider):'全部供应商'} · ${days===1?'今日':days?'近 '+days+' 天':'全部历史'}`;
-  if(page==='overview'){$('#page-title').textContent=source?(NAMES[source]||source)+' 用量':'所有 Agent，尽在一处。';$('#page-subtitle').textContent=source?'查看这个应用的供应商、模型与 Token 构成。':'自动识别本机应用，汇总真实 Token 与模型使用情况。';}
+  updatePageHeading();
 }
 async function refresh() {
   if(busy)return;
@@ -154,7 +159,13 @@ async function saveSettings() {
   if(!bridge)return;
   try{settings=await bridge.updateSettings(settings);await refresh();}catch(e){toast('设置未保存：'+e.message);}
 }
-function setPage(next){page=next;for(const p of ['overview','models','sources'])$(`#${p}-page`).hidden=p!==next;$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));$('#page-title').textContent=next==='sources'?'连接你的 Agent 应用。':next==='models'?'查看模型用量。':source?(NAMES[source]||source)+' 用量':'所有 Agent，尽在一处。';$('#page-subtitle').textContent=next==='sources'?'只显示已检测到的应用；统计范围为本机及已导入记录。':next==='models'?'沿用已选择的应用、供应商和时间范围。':source?'查看这个应用的供应商、模型与 Token 构成。':'自动识别本机应用，汇总真实 Token 与模型使用情况。';}
+function updatePageHeading(){
+  $('#page-title').textContent=page==='sources'?'数据来源':page==='models'?'模型明细':source?(NAMES[source]||source)+' 用量':'用量总览';
+  $('#page-subtitle').textContent=page==='sources'?'管理本机记录与网页采集':page==='models'?'按当前筛选查看模型与系统记录':source?'供应商、模型及 Token 构成':'查看各应用的 Token 使用情况';
+  $('.range-bar').hidden=page==='sources';$('.application-breadcrumb').hidden=page==='sources'||(!source&&!provider);
+  $('#more-actions').hidden=page==='sources';if(page==='sources'){$('#more-actions').open=false;$('#provider-empty').hidden=true;}
+}
+function setPage(next){page=next;for(const p of ['overview','models','sources'])$(`#${p}-page`).hidden=p!==next;$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));updatePageHeading();}
 $$('[data-page]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.page==='overview'){source='';provider='';}setPage(b.dataset.page);render();}));
 $('.brand').addEventListener('click',e=>{e.preventDefault();source='';provider='';setPage('overview');render();});
 $('#nav-back').addEventListener('click',()=>{
@@ -202,6 +213,11 @@ $('#audit-export').addEventListener('click',async()=>{
   try{if(await bridge.exportAudit(auditFilter))toast('用量核对报告已导出');}catch(e){toast('导出失败：'+e.message);}
 });
 const tooltip=$('#tooltip');
+let focusedTooltip=null;
+const actionMenu=$('#more-actions');
+actionMenu.addEventListener('click',e=>{if(e.target.closest('button'))actionMenu.open=false;});
+document.addEventListener('click',e=>{if(!actionMenu.contains(e.target))actionMenu.open=false;});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&actionMenu.open){actionMenu.open=false;actionMenu.querySelector('summary').focus();}});
 function showUpdate(s){
   $('#app-version').textContent=s.currentVersion;$('#updates-current').textContent=`当前版本 ${s.currentVersion}`;
   const labels={idle:'检查是否有新版本',checking:'正在连接 GitHub…',unpublished:'暂未发布更新',current:'当前已是最新版本',available:`发现新版本 ${s.availableVersion}`,downloading:`正在下载 ${s.progress}%`,ready:'下载完成，校验已通过',installing:'正在更新，应用即将重启',error:'更新未完成'};
@@ -226,13 +242,12 @@ $('#capture-copy').addEventListener('click',async()=>{if(!bridge?.copyPairing)re
 $('#capture-extension').addEventListener('click',async()=>{if(!bridge?.openExtension)return;try{await bridge.openExtension();toast('扩展文件夹已打开，请在浏览器中加载');}catch(e){toast('打开失败：'+e.message);}});
 $('#capture-import').addEventListener('click',async()=>{if(!bridge?.importUsage)return;const button=$('#capture-import');button.disabled=true;try{const r=await bridge.importUsage();if(r){toast(r.found?`已新增 ${r.added} 条真实用量（其余为重复或缺少时间/标识的记录）`:'文件中未找到有效 usage 字段，未产生估算数据');await refresh();}}catch(e){toast('导入失败：'+e.message);}finally{button.disabled=false;}});
 function showTip(target,x,y){tooltip.textContent=target.dataset.tooltip;tooltip.hidden=false;tooltip.style.left=Math.min(window.innerWidth-tooltip.offsetWidth-12,Math.max(10,x+12))+'px';tooltip.style.top=Math.min(window.innerHeight-tooltip.offsetHeight-12,Math.max(10,y+15))+'px';}
-document.addEventListener('pointermove',e=>{const target=e.target.closest('[data-tooltip]');if(!target){tooltip.hidden=true;return;}showTip(target,e.clientX,e.clientY);});
-document.addEventListener('focusin',e=>{const target=e.target.closest('[data-tooltip]');if(target){const rect=target.getBoundingClientRect();showTip(target,rect.x,rect.bottom);}});
-document.addEventListener('focusout',()=>tooltip.hidden=true);
+document.addEventListener('pointermove',e=>{focusedTooltip=null;const target=e.target.closest('[data-tooltip]');if(!target){tooltip.hidden=true;return;}showTip(target,e.clientX,e.clientY);});
+document.addEventListener('focusin',e=>{const target=e.target.closest('[data-tooltip]');if(target){focusedTooltip=target;const rect=target.getBoundingClientRect();showTip(target,rect.x,rect.bottom);}});
+document.addEventListener('focusout',()=>{focusedTooltip=null;tooltip.hidden=true;});
 document.addEventListener('pointerleave',()=>tooltip.hidden=true);
-window.addEventListener('scroll',()=>tooltip.hidden=true,{passive:true});
+window.addEventListener('scroll',()=>{if(focusedTooltip&&document.activeElement===focusedTooltip){const rect=focusedTooltip.getBoundingClientRect();if(rect.bottom>0&&rect.top<innerHeight){showTip(focusedTooltip,rect.x,rect.bottom);return;}}tooltip.hidden=true;},{passive:true});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')tooltip.hidden=true;});
-$('#today-label').textContent=new Date().toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
 render();
 try{if(bridge){settings=await bridge.getSettings();if(bridge.captureStatus)await updateCapture(await bridge.captureStatus());bridge.onCapture?.(()=>refresh());if(bridge.updateStatus)showUpdate(await bridge.updateStatus());bridge.onUpdate?.(showUpdate);}await refresh();}catch(e){toast('初始化失败：'+e.message);}
 setInterval(()=>{if(settings.autoRefresh&&!demo&&!document.hidden)refresh();},60000);
