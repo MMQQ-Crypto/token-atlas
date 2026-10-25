@@ -52,6 +52,16 @@ async function main(){
   await page.setViewportSize({width:960,height:680});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'applications-compact.png')});
   await page.locator('#updates-open').click();assert.equal(await page.locator('#updates-close').isVisible(),true);assert.equal(await page.locator('#updates-check').isVisible(),true);await page.locator('#updates-close').click();
   await page.locator('#audit-open').click();assert.equal(await page.locator('#audit-close').isVisible(),true);assert.equal(await page.locator('#audit-export').isVisible(),true);await page.locator('#audit-close').click();
+  const reviewData={...data,records:[{...make('model','codex','gpt-6.1-sol',0,1000),input:90,cacheRead:900},make('review','codex','codex-auto-review',0,100)]};
+  await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},reviewData);await page.locator('#refresh').click();
+  assert.equal(await stat(),'1,100');assert.equal(await page.locator('.stat-value').nth(1).innerText(),'1个');
+  assert.ok((await page.locator('#usage-summary').innerText()).includes('缓存读取 900 tokens'));assert.ok((await page.locator('#usage-summary').innerText()).includes('系统审核 100 tokens'));
+  assert.ok((await page.locator('#chart-legend').innerText()).includes('自动审核（系统记录）'));assert.ok(!(await page.locator('#chart-legend').innerText()).includes('codex-auto-review'));
+  await page.locator('[data-page="models"]').click();assert.equal(await page.locator('#model-table tr').count(),1);
+  const modelText=await page.locator('#model-table').innerText();assert.ok(modelText.includes('gpt-6.1-sol'));assert.ok(modelText.includes('供应商：OpenAI · 来源应用：Codex'));assert.ok(!modelText.includes('codex-auto-review'));
+  assert.equal(await page.locator('#system-usage-section').isVisible(),true);assert.equal(await page.locator('#system-usage-table tr').count(),1);assert.ok((await page.locator('#system-usage-table').innerText()).includes('实际模型未披露'));
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'model-system-separation.png'),fullPage:true});
+  await page.locator('#audit-open').click();assert.ok((await page.locator('#audit-detail').innerText()).includes('其中系统审核：1 条 / 100 tokens'));await page.locator('#audit-close').click();await page.locator('#nav-back').click();
   const curveValues=[5800,2200,1200,1700,4100,2500,8000];
   const curveData={...data,records:curveValues.map((total,i)=>make('curve-'+i,'codex','gpt-fixture',i-6,total))};
   await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},curveData);await page.locator('#refresh').click();await page.locator('[data-days="7"]').click();await page.setViewportSize({width:1440,height:1000});
@@ -75,6 +85,7 @@ async function main(){
   assert.deepEqual(await page.locator('.trend-series').evaluate(checkGeometry,zeroValues),{cubic:true,finite:true,bounded:true,forward:true,faithful:true});
   await page.locator('[data-days="1"]').click();assert.equal(await page.locator('#trend-chart circle').count(),1);assert.ok(!(await page.locator('.trend-series').getAttribute('d')).includes(' C'));
   await page.evaluate(()=>{window.tokenAtlas.scan=async()=>({records:[],sources:[],updatedAt:new Date().toISOString()});});await page.locator('#refresh').click();assert.equal(await page.locator('.donut-segment').count(),0);assert.equal(await page.locator('#tooltip').isHidden(),true);
+  assert.equal(await page.locator('#system-usage-section').isHidden(),true);assert.equal(await page.locator('#system-usage-table tr').count(),0);
   assert.deepEqual(errors,[]);console.log('PASS: smooth curve follows each daily value, stays within neighboring values, preserves zero and single-day cases; back navigation; donut hover; exact/scoped totals; export and audit; update interaction; empty chart; 960px layout.');
  }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }

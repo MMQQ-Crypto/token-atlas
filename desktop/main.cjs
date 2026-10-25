@@ -96,13 +96,13 @@ app.whenReady().then(async () => {
   });
   handle('export', async filter => {
     const { matchesProvider, providerFor, providerName } = await import('../ui/providers.mjs');
+    const {NAMES,isSystemUsage}=await import('../ui/analytics.mjs');
     const data = snapshot || await scan();
     const rows = data.records.filter(r => matchesProvider(r, filter?.provider) && (!filter?.source || r.source === filter.source) && (!filter?.start || r.timestamp >= filter.start) && (!filter?.end || r.timestamp < filter.end));
     const result = await dialog.showSaveDialog(win, { defaultPath: `Token-Atlas-${new Date().toISOString().slice(0, 10)}.csv`, filters: [{ name: 'CSV 表格', extensions: ['csv'] }] });
     if (result.canceled) return false;
     const csv = v => { let s = String(v ?? ''); if (/^[=+@\-\t\r]/.test(s)) s = "'" + s; return `"${s.replaceAll('"', '""')}"`; };
-    const keys = ['timestamp', 'source', 'model', 'providerName', 'input', 'output', 'cacheRead', 'cacheWrite', 'total'];
-    await fs.writeFile(result.filePath, '\ufeff' + ['时间,工具,模型,模型厂商（按模型或响应来源识别）,非缓存输入,输出,缓存读取,缓存写入,总 Token', ...rows.map(r => keys.map(k => csv(k === 'providerName' ? providerName(providerFor(r.model,r.providerHint)) : r[k])).join(','))].join('\r\n'));
+    await fs.writeFile(result.filePath, '\ufeff' + ['时间,来源应用,记录类型,模型,原始模型或系统标识,模型厂商（按模型或响应来源识别）,非缓存输入,输出,缓存读取,缓存写入,总 Token', ...rows.map(r => [r.timestamp,NAMES[r.source]||r.source,isSystemUsage(r)?'系统审核':'模型调用',isSystemUsage(r)?'未披露':r.model,r.model,providerName(providerFor(r.model,r.providerHint)),r.input,r.output,r.cacheRead,r.cacheWrite,r.total].map(csv).join(','))].join('\r\n'));
     return true;
   });
   handle('audit:export',async filter=>{

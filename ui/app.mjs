@@ -19,8 +19,9 @@ function renderStats(all) {
   const a=aggregate(all);
   const c=usageCounts(all),label=days===1?'今日':days?`近 ${days} 天`:'累计';
   const unknown=source&&!applicationUsage(snapshot.sources,records()).find(a=>a.id===source)?.hasUsage;
-  const items=[[unit(a.totals.total),label+' Token 总用量'],[`${c.models}<small>个</small>`,'使用模型数'],[`${c.applications}<small>个</small>`,'有用量的 Agent 应用'],[`${c.providers}<small>家</small>`,'模型供应商'],[unit(c.requests),'用量记录数']];
+  const items=[[unit(a.totals.total),label+' Token 总用量'],[`${c.models}<small>个</small>`,'已识别模型数'],[`${c.applications}<small>个</small>`,'有用量的 Agent 应用'],[`${c.providers}<small>家</small>`,'模型供应商'],[unit(c.requests),'用量记录数']];
   $('#stats').innerHTML=items.map(([value,label])=>`<div class="stat"><div class="stat-value">${unknown?'—':value}</div><div class="stat-label">${label}</div></div>`).join('');
+  $('#usage-summary').textContent=all.length?`总量含缓存读取 ${exact(a.totals.cacheRead)} tokens（${(a.totals.cacheRead/(a.totals.total||1)*100).toFixed(1)}%）${a.system.records?`；其中系统审核 ${exact(a.system.total)} tokens，已含在总量中，不计入已识别模型数。`:'。'}`:'';
 }
 function renderApplications(){
   const apps=applicationUsage(snapshot.sources,records());
@@ -60,7 +61,7 @@ function renderHeatmap(all) {
   $('#activity-summary').textContent=`过去一年活跃 ${active} 天${provider?' · '+(provider==='domestic'?'国内模型':providerName(provider)):''}${source?' · '+NAMES[source]:''}`;
 }
 function renderTrend(selected, models) {
-  $('#chart-legend').innerHTML=models.map(m=>`<button class="legend-item ${hiddenModels.has(m.key)?'off':''}" data-model="${escape(m.key)}" aria-pressed="${!hiddenModels.has(m.key)}"><i class="color-dot" style="background:${m.color}"></i>${escape(m.name)}<span class="muted">${escape(NAMES[m.source])}</span></button>`).join('');
+  $('#chart-legend').innerHTML=models.map(m=>`<button class="legend-item ${hiddenModels.has(m.key)?'off':''}" data-model="${escape(m.key)}" aria-pressed="${!hiddenModels.has(m.key)}"><i class="color-dot" style="background:${m.color}"></i>${escape(m.label)}<span class="muted">来源应用：${escape(NAMES[m.source]||m.source)}</span></button>`).join('');
   $('#trend-total').textContent=`所选时段 ${compact(selected.reduce((s,r)=>s+r.total,0))} tokens`;
   if(!selected.length){$('#trend-chart').innerHTML='<div class="chart-empty"><strong>这个时段还没有用量记录</strong><span>试试选择更长时段，或到「数据来源」检查日志目录。</span></div>';return;}
   let start=days?dayOffset(new Date(),1-days):dayOffset(selected[0].timestamp,0),end=dayOffset(new Date(),0);
@@ -75,7 +76,7 @@ function renderTrend(selected, models) {
   const count=Math.min(8,dates.length);
   for(let i=0;i<count;i++){const index=count===1?0:Math.round(i*(dates.length-1)/(count-1)),date=new Date(dates[index]+'T00:00:00');svg+=`<text x="${x(index)}" y="${height-7}" text-anchor="${i===0?'start':i===count-1?'end':'middle'}" fill="#8c8c95" font-size="11">${date.getMonth()+1}月${date.getDate()}日</text>`;}
   for(const m of series){const points=dates.map((date,i)=>[x(i),y(m.values.get(date)||0)]);svg+=`<path class="trend-series" d="${smoothPath(points)}" fill="none" stroke="${m.color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;if(dates.length===1)svg+=`<circle cx="${x(0)}" cy="${y(m.values.get(dates[0])||0)}" r="4" fill="${m.color}"/>`;}
-  for(let i=0;i<dates.length;i++){const tips=`${dates[i]}\n`+series.map(m=>`${m.name}：${exact(m.values.get(dates[i])||0)}`).join('\n');const cellWidth=pw/Math.max(1,dates.length-1);svg+=`<rect x="${Math.max(left,x(i)-cellWidth/2)}" y="${top}" width="${Math.min(cellWidth,width-right-Math.max(left,x(i)-cellWidth/2))}" height="${ph}" fill="transparent" data-tooltip="${escape(tips)}"/>`;}
+  for(let i=0;i<dates.length;i++){const tips=`${dates[i]}\n`+series.map(m=>`${m.label}：${exact(m.values.get(dates[i])||0)}`).join('\n');const cellWidth=pw/Math.max(1,dates.length-1);svg+=`<rect x="${Math.max(left,x(i)-cellWidth/2)}" y="${top}" width="${Math.min(cellWidth,width-right-Math.max(left,x(i)-cellWidth/2))}" height="${ph}" fill="transparent" data-tooltip="${escape(tips)}"/>`;}
   $('#trend-chart').innerHTML=`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="每日各模型 Token 趋势">${svg}</svg>`;
 }
 function renderDistribution(summary) {
@@ -86,18 +87,22 @@ function renderDistribution(summary) {
     const start=offset+gap/2,span=angle-gap,point=a=>`${100+radius*Math.cos(a)},${100+radius*Math.sin(a)}`;
     // Separate arc paths keep hit areas on their own colors, including a full ring.
     const d=`M${point(start)} A${radius},${radius} 0 0 1 ${point(start+span/2)} A${radius},${radius} 0 0 1 ${point(start+span)}`;
-    const tip=`${m.name}\n${providerName(providerFor(m.name,m.providerHint))} · ${NAMES[m.source]||m.source}\n${exact(m.total)} tokens · 占比 ${(m.total/(total||1)*100).toFixed(1)}%\n非缓存输入：${exact(m.input)}\n输出：${exact(m.output)}\n缓存读取：${exact(m.cacheRead)}\n缓存写入：${exact(m.cacheWrite)}\n用量记录：${exact(m.count)} 条`;
+    const tip=`${m.label}\n供应商：${providerName(providerFor(m.name,m.providerHint))}\n来源应用：${NAMES[m.source]||m.source}${m.system?'\n实际模型：未披露':''}\n${exact(m.total)} tokens · 占比 ${(m.total/(total||1)*100).toFixed(1)}%\n非缓存输入：${exact(m.input)}\n输出：${exact(m.output)}\n缓存读取：${exact(m.cacheRead)}\n缓存写入：${exact(m.cacheWrite)}\n用量记录：${exact(m.count)} 条`;
     const segment=`<path class="donut-segment" d="${d}" fill="none" stroke="${m.color}" stroke-width="27" tabindex="0" role="img" aria-label="${escape(tip)}" data-tooltip="${escape(tip)}"/>`;
     offset+=angle;return segment;
   }).join('');
   $('#donut').innerHTML=`<svg viewBox="0 0 200 200" role="img" aria-label="模型 Token 占比"><circle cx="100" cy="100" r="${radius}" fill="none" stroke="#303033" stroke-width="27"/>${arcs}</svg><div class="donut-center"><strong>${total?escape(compact(total)):'—'}</strong><span>${total?'tokens':'暂无记录'}</span></div>`;
-  $('#model-list').innerHTML=summary.models.length?summary.models.map(m=>`<div class="model-item"><i class="color-dot" style="background:${m.color}"></i><div><div class="model-name">${escape(m.name)}</div><div class="model-meta">${escape(providerName(providerFor(m.name,m.providerHint)))} · ${escape(NAMES[m.source])}</div><div class="model-meta">${escape(compact(m.total))} tokens</div></div><span class="model-share">${(m.total/total*100).toFixed(1)}%</span></div>`).join(''):'<p class="muted">读取到用量后，这里会显示模型分布。</p>';
+  $('#model-list').innerHTML=summary.models.length?summary.models.map(m=>`<div class="model-item"><i class="color-dot" style="background:${m.color}"></i><div><div class="model-name">${escape(m.label)}</div><div class="model-meta">供应商：${escape(providerName(providerFor(m.name,m.providerHint)))}<br>来源应用：${escape(NAMES[m.source]||m.source)}${m.system?'<br>实际模型未披露':''}</div><div class="model-meta">${escape(compact(m.total))} tokens</div></div><span class="model-share">${(m.total/total*100).toFixed(1)}%</span></div>`).join(''):'<p class="muted">读取到用量后，这里会显示模型分布。</p>';
   const fields=[['input','非缓存输入',COLORS[0]],['output','输出',COLORS[1]],['cacheRead','缓存读取',COLORS[2]],['cacheWrite','缓存写入',COLORS[3]]];
   $('#breakdown').innerHTML=fields.map(([field,label,color])=>`<div class="breakdown-row"><div class="breakdown-label"><span>${label}</span><strong>${total?compact(summary.totals[field]):'—'}</strong></div><div class="bar-track"><div class="bar-fill" style="width:${summary.totals[field]/(total||1)*100}%;background:${color}"></div></div></div>`).join('');
 }
 function renderModels(all) {
   const summary=aggregate(all);
-  $('#model-table').innerHTML=summary.models.map(m=>`<tr><td><i class="color-dot" style="background:${m.color}"></i> ${escape(m.name)}<small>${escape(providerName(providerFor(m.name,m.providerHint)))} · ${escape(NAMES[m.source])}</small></td><td>${exact(m.count)}</td><td>${compact(m.input)}</td><td>${compact(m.output)}</td><td>${compact(m.cacheRead)}</td><td>${compact(m.cacheWrite)}</td><td>${compact(m.total)}</td></tr>`).join('')||'<tr><td colspan="7">还没有可统计的记录，请到「数据来源」检查本机日志。</td></tr>';
+  const row=m=>`<tr><td><i class="color-dot" style="background:${m.color}"></i> ${escape(m.label)}<small>供应商：${escape(providerName(providerFor(m.name,m.providerHint)))} · 来源应用：${escape(NAMES[m.source]||m.source)}${m.system?`<br>实际模型未披露 · 日志标识：${escape(m.name)}`:''}</small></td><td>${exact(m.count)}</td><td>${compact(m.input)}</td><td>${compact(m.output)}</td><td>${compact(m.cacheRead)}</td><td>${compact(m.cacheWrite)}</td><td>${compact(m.total)}</td></tr>`;
+  $('#model-table').innerHTML=summary.models.filter(m=>!m.system).map(row).join('')||'<tr><td colspan="7">当前范围没有已披露模型的用量记录。</td></tr>';
+  const systemRows=summary.models.filter(m=>m.system);
+  $('#system-usage-section').hidden=!systemRows.length;
+  $('#system-usage-table').innerHTML=systemRows.map(row).join('');
 }
 function renderSources() {
   // Always use real records here, even while the overview is in demo mode.

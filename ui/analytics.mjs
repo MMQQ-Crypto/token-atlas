@@ -2,19 +2,25 @@ export const COLORS = ['#6b9df7', '#75c498', '#a18aee', '#edaa6a', '#df788b', '#
 export const NAMES = { deepseek_desktop:'DeepSeek Harness',browser:'网页响应采集',imported:'导入的真实用量',codex: 'Codex',zcode:'ZCode',claude: 'Claude Code', cline: 'Cline', roo: 'Roo Code', kilo: 'Kilo Code',cursor:'Cursor',windsurf:'Windsurf',qoder:'Qoder',trae:'TRAE',chatgpt:'ChatGPT' };
 export const dayKey = value => { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 export const modelKey=r=>`${r.source}::${r.model}::${r.providerHint||''}`;
+// This is a system review route in Codex logs, not a disclosed model name.
+// Real model names such as gpt-5-codex must remain model usage.
+export const isSystemUsage=r=>r.source==='codex'&&r.model==='codex-auto-review';
+export const usageLabel=r=>isSystemUsage(r)?'自动审核（系统记录）':r.model;
 export function dayOffset(date, offset) { const d = new Date(date); d.setHours(0,0,0,0); d.setDate(d.getDate()+offset); return d; }
 export function compact(n) { return n >= 1e8 ? (n/1e8).toLocaleString('zh-CN',{maximumFractionDigits:2})+' 亿' : n >= 1e4 ? (n/1e4).toLocaleString('zh-CN',{maximumFractionDigits:1})+' 万' : n.toLocaleString('zh-CN'); }
 export function aggregate(records) {
   const daily = new Map(), models = new Map(), sessions = new Set();
   const totals = {input:0,output:0,cacheRead:0,cacheWrite:0,total:0};
+  const system = {records:0,input:0,output:0,cacheRead:0,cacheWrite:0,total:0};
   for (const r of records) {
     const key = dayKey(r.timestamp);
     daily.set(key, (daily.get(key)||0)+r.total);
     sessions.add(`${r.source}:${r.session}`);
     const mk = modelKey(r);
-    if (!models.has(mk)) models.set(mk, {key:mk, source:r.source, name:r.model,providerHint:r.providerHint, count:0, input:0,output:0,cacheRead:0,cacheWrite:0,total:0});
+    if (!models.has(mk)) models.set(mk, {key:mk, source:r.source, name:r.model,label:usageLabel(r),system:isSystemUsage(r),providerHint:r.providerHint, count:0, input:0,output:0,cacheRead:0,cacheWrite:0,total:0});
     const m = models.get(mk); m.count++;
-    for (const field of Object.keys(totals)) { totals[field] += r[field]; m[field] += r[field]; }
+    if(m.system)system.records++;
+    for (const field of Object.keys(totals)) { totals[field] += r[field]; m[field] += r[field]; if(m.system)system[field]+=r[field]; }
   }
   const sortedDays = [...daily.keys()].sort();
   let longest = 0, run = 0, previous;
@@ -23,7 +29,7 @@ export function aggregate(records) {
   if (!daily.has(dayKey(cursor))) cursor=dayOffset(cursor,-1);
   while (daily.has(dayKey(cursor))) { current++; cursor=dayOffset(cursor,-1); }
   const list = [...models.values()].sort((a,b)=>b.total-a.total).map((m,i)=>({...m,color:COLORS[i%COLORS.length]}));
-  return {daily, models:list, totals, sessions:sessions.size, longest, current, peak:Math.max(0,...daily.values())};
+  return {daily, models:list, totals, system, sessions:sessions.size, longest, current, peak:Math.max(0,...daily.values())};
 }
 export function selectRecords(records, source, days, now=new Date()) {
   const start = days ? dayOffset(now,1-days).getTime() : -Infinity;

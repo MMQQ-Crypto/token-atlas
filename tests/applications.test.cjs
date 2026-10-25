@@ -81,3 +81,23 @@ test('Application drilldown: today, 7/30 days and lifetime totals consistently p
   assert.equal(scopedRecords(rows,{source:'zcode',provider:'zhipu',days:30,now}).reduce((s,r)=>s+r.total,0),60);
   const counts=usageCounts(scopedRecords(rows,{days:30,now}));assert.deepEqual(counts,{models:3,applications:2,providers:3,requests:4});
 });
+
+test('Codex app is distinct from its model; system review stays in totals but never becomes a selected model',async()=>{
+  const {aggregate}=await import('../ui/analytics.mjs');
+  const {applicationUsage,usageCounts}=await import('../ui/applications.mjs');
+  const {reconcileUsage,reconciliationText}=await import('../ui/reconciliation.mjs');
+  const make=(model,input,cacheRead)=>({source:'codex',session:'s',model,timestamp:now.toISOString(),input,output:10,cacheRead,cacheWrite:0,total:input+10+cacheRead});
+  const rows=[make('gpt-6.1-sol',100,900),make('codex-auto-review',20,80)];
+  const a=aggregate(rows),report=reconcileUsage({records:rows},{days:1,now});
+  assert.equal(usageCounts(rows).models,1);assert.equal(applicationUsage([],rows,now)[0].models,1);
+  assert.equal(a.totals.total,1120);assert.equal(a.totals.cacheRead,980);assert.equal(a.system.total,110);
+  assert.equal(report.models.length,1);assert.equal(report.models[0].model,'gpt-6.1-sol');
+  assert.equal(report.systemUsage[0].model,null);assert.equal(report.systemUsage[0].logModel,'codex-auto-review');
+  assert.equal(report.systemUsage[0].label,'自动审核（系统记录）');
+  assert.equal(report.models.reduce((sum,m)=>sum+m.total,0)+report.system.total,report.current.total);
+  assert.equal(report.periods.today,1120);assert.ok(reconciliationText(report).includes('其中系统审核：1 条 / 110 tokens'));
+  // The exact review alias is special; actual Codex-named models remain models.
+  assert.equal(usageCounts([make('gpt-5-codex',1,0)]).models,1);
+  assert.equal(usageCounts([make('codex-auto-review',1,0)]).models,0);
+  assert.equal(aggregate([make('未知模型',1,0)]).system.records,0);
+});
