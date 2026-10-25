@@ -227,7 +227,7 @@ function showUpdate(s){
   if(s.status==='downloading'){
     const mb=n=>(n/1024/1024).toFixed(1)+' MB';
     $('#updates-message').textContent=s.phase==='verifying'?'下载完成，正在校验…':`正在下载 ${s.progress}%`;
-    $('#updates-detail').textContent=`${mb(s.downloadedBytes||0)} / ${mb(s.totalBytes||0)}${s.bytesPerSecond?' · '+mb(s.bytesPerSecond)+'/s':''}${s.remainingSeconds>0?' · 约剩 '+s.remainingSeconds+' 秒':''}${s.downloadMode==='resume'?' · 已续传':s.downloadMode==='parallel'?' · 并行下载':''}`;
+    $('#updates-detail').textContent=`${mb(s.downloadedBytes||0)} / ${mb(s.totalBytes||0)}${s.bytesPerSecond?' · '+mb(s.bytesPerSecond)+'/s':''}${s.remainingSeconds>0?' · 约剩 '+s.remainingSeconds+' 秒':''}${s.downloadMode==='resume'?' · 已续传':s.downloadMode==='parallel'?' · 并行下载':s.downloadMode==='single-fallback'?' · 分段响应较慢，已切换普通下载':''}`;
   }else if(s.status==='ready'&&s.downloadMode==='cached')$('#updates-detail').textContent=s.canInstall?'已复用本机校验通过的更新包，可直接更新并重启。':'已复用本机更新包，请从免安装 EXE 运行以完成更新。';
   $('#updates-notes').textContent=s.notes||'';$('#updates-progress').hidden=s.status!=='downloading';$('#updates-progress').value=s.progress;
   $('#updates-check').disabled=['checking','downloading','installing'].includes(s.status);

@@ -1,6 +1,6 @@
 {
   "name": "token-atlas",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "本地 AI Token 用量统计桌面应用",
   "main": "desktop/main.cjs",
   "author": "Token Atlas",

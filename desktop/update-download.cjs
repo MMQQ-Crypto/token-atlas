@@ -30,18 +30,18 @@ async function consume(response,file,offset,expected,onBytes){
 
 // Every cached byte is untrusted until the complete EXE passes its published hash.
 // Ranges share one immutable asset identity; a server ignoring Range gets one full download.
-async function downloadAsset({asset,directory,request,onProgress=()=>{},rangeThreshold=8*1024*1024}){
+async function downloadAsset({asset,directory,request,onProgress=()=>{},rangeThreshold=8*1024*1024,stallTimeout=20000}){
   await fs.mkdir(directory,{recursive:true});
   const destination=path.join(directory,`Token-Atlas-${asset.version}-Windows-x64.exe`);
   if(await verifyFile(destination,asset)){onProgress({phase:'cached',loaded:asset.size,total:asset.size,mode:'cached',bytesPerSecond:0,remainingSeconds:0});return {file:destination,mode:'cached'};}
   const prefix=`${destination}.${asset.sha256.toLowerCase().slice(0,16)}`,temporary=prefix+'.part',chunkDirectory=prefix+'.chunks';
-  const started=Date.now();let loaded=0,initial=0,lastUpdate=0,mode='single';
+  let started=Date.now(),lastByteAt=started,loaded=0,initial=0,lastUpdate=0,mode='single';
   const progress=(force=false,phase='downloading')=>{
     const now=Date.now();if(!force&&now-lastUpdate<150&&loaded<asset.size)return;lastUpdate=now;
     const elapsed=(now-started)/1000,speed=elapsed>.2?Math.max(0,loaded-initial)/elapsed:0;
     onProgress({phase,loaded,total:asset.size,mode,bytesPerSecond:Math.round(speed),remainingSeconds:speed>0?Math.ceil((asset.size-loaded)/speed):null});
   };
-  const add=n=>{loaded+=n;progress();};
+  const add=n=>{lastByteAt=Date.now();loaded+=n;progress();};
   const cleanChunks=async()=>{for(let i=0;i<4;i++)await fs.rm(path.join(chunkDirectory,`${i}.part`),{force:true});await fs.rmdir(chunkDirectory).catch(e=>{if(!['ENOENT','ENOTEMPTY'].includes(e.code))throw e;});};
   const finish=async()=>{
     progress(true,'verifying');
@@ -68,23 +68,32 @@ async function downloadAsset({asset,directory,request,onProgress=()=>{},rangeThr
   initial=loaded;mode=initial?'resume':'parallel';progress(true);
   const pending=chunks.filter(c=>c.offset<c.size),controller=new AbortController();
   if(pending.length){
-    const first=pending[0];
-    const options=c=>({headers:{Range:`bytes=${c.start+c.offset}-${c.end}`},signal:controller.signal});
-    const firstResponse=await request(asset.url,600000,options(first));
-    if(firstResponse.status===200){
-      initial=loaded=0;mode='single';progress(true);
-      await consume(firstResponse,temporary,0,asset.size,add);return finish();
-    }
-    let failure;
-    const results=await Promise.allSettled(pending.map(async(c,i)=>{
-      let response;
-      try{
-        response=i===0?firstResponse:await request(asset.url,600000,options(c));
-        checkRange(response,c.start+c.offset,c.end,asset.size);
-        await consume(response,c.file,c.offset,c.size,add);
-      }catch(e){failure??=e;controller.abort();await response?.body?.cancel().catch(()=>{});throw e;}
-    }));
-    if(results.some(r=>r.status==='rejected'))throw failure;
+    let stalled=false;lastByteAt=Date.now();
+    const watchdog=setInterval(()=>{if(Date.now()-lastByteAt>=stallTimeout){stalled=true;controller.abort(new Error('分段下载长时间未收到数据'));}},Math.min(1000,Math.max(10,stallTimeout/2)));watchdog.unref();
+    try{
+      const first=pending[0];
+      const options=c=>({headers:{Range:`bytes=${c.start+c.offset}-${c.end}`},signal:controller.signal});
+      const firstResponse=await request(asset.url,600000,options(first));
+      if(firstResponse.status===200){
+        clearInterval(watchdog);initial=loaded=0;mode='single';progress(true);
+        await consume(firstResponse,temporary,0,asset.size,add);return finish();
+      }
+      let failure;
+      const results=await Promise.allSettled(pending.map(async(c,i)=>{
+        let response;
+        try{
+          response=i===0?firstResponse:await request(asset.url,600000,options(c));
+          checkRange(response,c.start+c.offset,c.end,asset.size);
+          await consume(response,c.file,c.offset,c.size,add);
+        }catch(e){failure??=e;controller.abort();await response?.body?.cancel().catch(()=>{});throw e;}
+      }));
+      if(results.some(r=>r.status==='rejected'))throw failure;
+    }catch(e){
+      if(!stalled)throw e;
+      clearInterval(watchdog);initial=loaded=0;mode='single-fallback';started=Date.now();progress(true);
+      const response=await request(asset.url,600000);
+      await consume(response,temporary,0,asset.size,add);return finish();
+    }finally{clearInterval(watchdog);}
   }
   const handle=await fs.open(temporary,'w');
   try{for(const c of chunks)for await(const bytes of createReadStream(c.file))await handle.writeFile(bytes);}finally{await handle.close();}

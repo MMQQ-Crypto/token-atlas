@@ -66,3 +66,14 @@ test('Update ranges: bad assembled hashes discard poisoned chunks so retry can r
     bad=false;const result=await download();assert.ok((await fs.readFile(result.file)).equals(payload));
   });
 });
+
+test('Update ranges: accepted ranges with no body progress abort and fall back to one verified full download',async()=>{
+  let full=0,ranges=0;const modes=[];
+  await fixture((req,res)=>{
+    if(req.headers.range){ranges++;const [start,end]=range(req);headers(res,start,end);res.flushHeaders();}
+    else{full++;res.writeHead(200,{'Content-Length':payload.length});res.end(payload);}
+  },async({download})=>{
+    const result=await download({stallTimeout:60,onProgress:p=>modes.push(p.mode)});
+    assert.ok(ranges>0&&ranges<=4);assert.equal(full,1);assert.ok(modes.includes('single-fallback'));assert.equal(result.mode,'single-fallback');assert.ok((await fs.readFile(result.file)).equals(payload));
+  });
+});
