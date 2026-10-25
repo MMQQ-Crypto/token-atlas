@@ -85,8 +85,8 @@ function renderDistribution(summary) {
   const total=summary.totals.total,radius=77;
   let offset=0;
   const arcs=summary.models.map(m=>{
-    const angle=m.total/(total||1)*2*Math.PI,gap=summary.models.length===1?0:Math.min(2/radius,angle*.15);
-    const start=offset+gap/2,span=angle-gap,point=a=>`${100+radius*Math.cos(a)},${100+radius*Math.sin(a)}`;
+    const angle=m.total/(total||1)*2*Math.PI;
+    const start=offset,span=angle,point=a=>`${100+radius*Math.cos(a)},${100+radius*Math.sin(a)}`;
     // Separate arc paths keep hit areas on their own colors, including a full ring.
     const d=`M${point(start)} A${radius},${radius} 0 0 1 ${point(start+span/2)} A${radius},${radius} 0 0 1 ${point(start+span)}`;
     const tip=`${m.label}\n供应商：${providerName(providerFor(m.name,m.providerHint))}\n来源应用：${NAMES[m.source]||m.source}${m.system?'\n实际模型：未披露':''}\n${exact(m.total)} tokens · 占比 ${(m.total/(total||1)*100).toFixed(1)}%\n非缓存输入：${exact(m.input)}\n输出：${exact(m.output)}\n缓存读取：${exact(m.cacheRead)}\n缓存写入：${exact(m.cacheWrite)}\n用量记录：${exact(m.count)} 条`;
