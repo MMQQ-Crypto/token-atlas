@@ -49,10 +49,25 @@ test('Updater: malformed, unrelated and prerelease manifests never become downlo
 });
 
 test('Updater: access failures remain recoverable, failed recheck clears stale download metadata',async()=>{
-  for(const status of [403,429,500]){let failed=true;const updater=new Updater({version:'1.3.0',directory:os.tmpdir(),fetchImpl:async()=>failed?new Response('',{status}):json(manifest)});assert.equal((await updater.check()).status,'error');failed=false;assert.equal((await updater.check()).status,'available');failed=true;assert.equal((await updater.check()).status,'error');assert.equal(updater.status().availableVersion,null);await assert.rejects(()=>updater.download());await assert.rejects(()=>updater.install());}
+  for(const status of [403,429,500]){let failed=true;const updater=new Updater({version:'1.3.0',directory:os.tmpdir(),fetchImpl:async()=>failed?new Response('',{status}):json(manifest)});assert.equal((await updater.check()).status,'error');failed=false;assert.equal((await updater.check()).status,'available');failed=true;assert.equal((await updater.check({force:true})).status,'error');assert.equal(updater.status().availableVersion,null);await assert.rejects(()=>updater.download());await assert.rejects(()=>updater.install());}
 });
 
 test('Updater: concurrent checks share a single pending request',async()=>{
   let resolve,calls=0;const updater=new Updater({version:'1.3.0',directory:os.tmpdir(),fetchImpl:()=>{calls++;return new Promise(r=>resolve=r);}});
   const checking=updater.check();assert.equal((await updater.check()).status,'checking');assert.equal(calls,1);resolve(json(manifest));assert.equal((await checking).status,'available');
+});
+
+test('Updater: repeated checks preserve ready downloads; explicit checks refresh and restart reuses only verified files',async()=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'atlas-update-cache-'));let calls=0;
+  const fetchImpl=async url=>{calls++;return url===latestUrl?json(manifest):new Response(bytes);};
+  try{
+    const updater=new Updater({version:'1.3.0',directory:dir,fetchImpl});
+    await updater.check();await updater.download();assert.equal(calls,2);
+    assert.equal((await updater.check()).status,'ready');assert.equal(calls,2);
+    assert.equal((await updater.check({force:true})).status,'ready');assert.equal(calls,3);
+    const restarted=new Updater({version:'1.3.0',directory:dir,fetchImpl});await restarted.check();
+    assert.equal((await restarted.download()).status,'ready');assert.equal(restarted.status().downloadMode,'cached');assert.equal(calls,4);
+    await fs.writeFile(restarted.downloaded,Buffer.alloc(bytes.length));
+    assert.equal((await restarted.download()).status,'ready');assert.equal(calls,5);assert.ok((await fs.readFile(restarted.downloaded)).equals(bytes));
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });

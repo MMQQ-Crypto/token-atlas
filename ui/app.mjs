@@ -134,7 +134,8 @@ function render() {
   $('#export').disabled=demo||busy;
   $('#audit-open').disabled=demo||busy;
   const backLabel=page==='sources'?'返回用量总览':page==='models'?(source?'返回应用用量':'返回全局总览'):source?'返回全部应用':'返回全局总览';
-  $('#nav-back').disabled=page==='overview'&&!source&&!provider;
+  const atRoot=page==='overview'&&!source&&!provider;
+  $('#nav-back').hidden=atRoot;$('#nav-back').disabled=atRoot;
   $('#nav-back').setAttribute('aria-label',backLabel);$('#nav-back').title=backLabel;
   $('#range-caption').textContent=days?`${dayKey(dayOffset(new Date(),1-days))} — ${dayKey(new Date())}`:'全部历史记录';
   const present=applicationUsage(snapshot.sources,records()).map(a=>a.id);
@@ -223,16 +224,22 @@ function showUpdate(s){
   const labels={idle:'检查是否有新版本',checking:'正在连接 GitHub…',unpublished:'暂未发布更新',current:'当前已是最新版本',available:`发现新版本 ${s.availableVersion}`,downloading:`正在下载 ${s.progress}%`,ready:'下载完成，校验已通过',installing:'正在更新，应用即将重启',error:'更新未完成'};
   $('#updates-message').textContent=labels[s.status]||'应用更新';
   $('#updates-detail').textContent=s.error||(s.status==='ready'?(s.canInstall?'点击“更新并重启”，将保留使用记录和设置。':'请使用免安装 EXE 运行，才能覆盖更新原程序。'):s.status==='unpublished'?'仓库尚未提供 Token Atlas 的正式发布包。':'');
+  if(s.status==='downloading'){
+    const mb=n=>(n/1024/1024).toFixed(1)+' MB';
+    $('#updates-message').textContent=s.phase==='verifying'?'下载完成，正在校验…':`正在下载 ${s.progress}%`;
+    $('#updates-detail').textContent=`${mb(s.downloadedBytes||0)} / ${mb(s.totalBytes||0)}${s.bytesPerSecond?' · '+mb(s.bytesPerSecond)+'/s':''}${s.remainingSeconds>0?' · 约剩 '+s.remainingSeconds+' 秒':''}${s.downloadMode==='resume'?' · 已续传':s.downloadMode==='parallel'?' · 并行下载':''}`;
+  }else if(s.status==='ready'&&s.downloadMode==='cached')$('#updates-detail').textContent=s.canInstall?'已复用本机校验通过的更新包，可直接更新并重启。':'已复用本机更新包，请从免安装 EXE 运行以完成更新。';
   $('#updates-notes').textContent=s.notes||'';$('#updates-progress').hidden=s.status!=='downloading';$('#updates-progress').value=s.progress;
   $('#updates-check').disabled=['checking','downloading','installing'].includes(s.status);
   $('#updates-download').hidden=!(['available','error'].includes(s.status)&&s.availableVersion);
+  $('#updates-download').textContent=s.status==='error'&&s.canResume?'继续下载':'下载更新';
   $('#updates-install').hidden=s.status!=='ready';$('#updates-install').disabled=!s.canInstall;
   $('#updates-open').textContent=['available','ready'].includes(s.status)?`有新版本 ${s.availableVersion}`:'检查更新';
 }
 $('#updates-open').addEventListener('click',async()=>{$('#updates-dialog').showModal();if(!bridge?.checkUpdate){$('#updates-message').textContent='请在桌面应用中检查更新';return;}showUpdate(await bridge.checkUpdate());});
 $('#updates-close').addEventListener('click',()=>$('#updates-dialog').close());
 $('#updates-release').addEventListener('click',async()=>{try{if(bridge?.openRelease)await bridge.openRelease();else toast('请在桌面应用中打开发布页');}catch(e){toast('发布页未打开：'+e.message);}});
-$('#updates-check').addEventListener('click',async()=>{if(bridge?.checkUpdate)showUpdate(await bridge.checkUpdate());});
+$('#updates-check').addEventListener('click',async()=>{if(bridge?.checkUpdate)showUpdate(await bridge.checkUpdate({force:true}));});
 $('#updates-download').addEventListener('click',async()=>{try{showUpdate(await bridge.downloadUpdate());}catch(e){toast('下载失败：'+e.message);}});
 $('#updates-install').addEventListener('click',async()=>{try{await bridge.installUpdate();}catch(e){toast('更新失败：'+e.message);}});
 let captureRunning=false;

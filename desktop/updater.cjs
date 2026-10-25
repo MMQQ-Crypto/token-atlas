@@ -1,8 +1,8 @@
 const fs=require('node:fs/promises');
 const path=require('node:path');
-const crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
 const config=require('./update-config.json');
+const {downloadAsset,verifyFile}=require('./update-download.cjs');
 const versionParts=value=>{const m=typeof value==='string'&&/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);if(!m)throw new Error('无效的正式版本号');return m.slice(1).map(Number);};
 function compareVersions(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]>y[i]?1:-1;return 0;}
 function validateManifest(manifest,tag){
@@ -17,45 +17,51 @@ function validateManifest(manifest,tag){
 class Updater{
   constructor({version,directory,portableFile,fetchImpl=fetch,onChange=()=>{},quit=()=>{}}){
     this.version=version;this.directory=directory;this.portableFile=portableFile;this.fetchImpl=fetchImpl;this.onChange=onChange;this.quit=quit;
+    this.checkedAt=0;
     this.state={status:'idle',currentVersion:version,availableVersion:null,notes:'',progress:0,error:'',canInstall:!!portableFile,repository:config.repository};
   }
   status(){return {...this.state};}
   set(next){this.state={...this.state,...next};this.onChange(this.status());return this.status();}
-  async request(url,timeout=20000){
-    const response=await this.fetchImpl(url,{headers:{'User-Agent':`Token-Atlas/${this.version}`,Accept:'application/json, application/octet-stream'},signal:AbortSignal.timeout(timeout),redirect:'follow',credentials:'omit',cache:'no-store'});
+  async request(url,timeout=20000,{headers={},signal}={}){
+    const deadline=AbortSignal.timeout(timeout);
+    const response=await this.fetchImpl(url,{headers:{'User-Agent':`Token-Atlas/${this.version}`,Accept:'application/json, application/octet-stream',...headers},signal:signal?AbortSignal.any([deadline,signal]):deadline,redirect:'follow',credentials:'omit',cache:'no-store'});
     if(!response.ok){const error=new Error(response.status===403?'GitHub 拒绝访问（403），请稍后重试或打开发布页':response.status===429?'GitHub 访问过于频繁，请稍后重试或打开发布页':`GitHub 访问失败（${response.status}），可打开发布页手动下载`);error.status=response.status;throw error;}
     return response;
   }
-  async check(){
+  async check({force=false}={}){
     if(['checking','downloading','installing'].includes(this.state.status))return this.status();
+    if(!force&&Date.now()-this.checkedAt<30000&&['current','available','ready'].includes(this.state.status)){
+      if(this.state.status!=='ready'||await verifyFile(this.downloaded,this.manifest))return this.status();
+      this.downloaded=null;return this.set({status:'available',progress:0,downloadMode:'',downloadedBytes:0});
+    }
+    const previousManifest=this.manifest,previousDownload=this.downloaded;
     this.manifest=null;this.downloaded=null;
-    this.set({status:'checking',availableVersion:null,notes:'',progress:0,error:''});
+    this.set({status:'checking',availableVersion:null,notes:'',progress:0,error:'',downloadedBytes:0,totalBytes:0,bytesPerSecond:0,remainingSeconds:null,downloadMode:'',phase:'',canResume:false});
     try{
       // The public latest-release asset avoids the shared unauthenticated REST API quota.
       const response=await this.request(`https://github.com/${config.repository}/releases/latest/download/${config.manifestAsset}`);
       let raw;try{raw=await response.json();}catch{throw new Error('更新清单不是有效 JSON，可打开发布页手动下载');}
       const manifest=validateManifest(raw,config.tagPrefix+raw?.version),version=manifest.version;
+      this.checkedAt=Date.now();
       if(compareVersions(version,this.version)<=0)return this.set({status:'current',availableVersion:null,notes:'当前已是最新版本',progress:0});
       this.manifest=manifest;
+      if(previousDownload&&previousManifest?.sha256===manifest.sha256&&previousManifest.version===manifest.version&&await verifyFile(previousDownload,manifest)){
+        this.downloaded=previousDownload;return this.set({status:'ready',availableVersion:version,notes:manifest.notes,progress:100,downloadedBytes:manifest.size,totalBytes:manifest.size,downloadMode:'cached'});
+      }
       return this.set({status:'available',availableVersion:version,notes:this.manifest.notes,progress:0});
-    }catch(e){if(e.status===404)return this.set({status:'unpublished',notes:'尚未提供可用的 Token Atlas 更新清单，可打开发布页查看'});return this.set({status:'error',error:e.name==='TimeoutError'?'连接 GitHub 超时，请重试或打开发布页':e.message});}
+    }catch(e){this.checkedAt=0;if(e.status===404)return this.set({status:'unpublished',notes:'尚未提供可用的 Token Atlas 更新清单，可打开发布页查看'});return this.set({status:'error',error:e.name==='TimeoutError'?'连接 GitHub 超时，请重试或打开发布页':e.message});}
   }
   async download(){
     if(this.state.status==='downloading')return this.status();
     if(!this.manifest||compareVersions(this.manifest.version,this.version)<=0)throw new Error('请先检查是否有新版本');
-    const m=this.manifest;await fs.mkdir(this.directory,{recursive:true});
-    const destination=path.join(this.directory,`Token-Atlas-${m.version}-Windows-x64.exe`),temporary=destination+'.part';
-    this.set({status:'downloading',progress:0,error:''});let handle;
+    const m=this.manifest;
+    this.set({status:'downloading',progress:0,error:'',downloadedBytes:0,totalBytes:m.size,bytesPerSecond:0,remainingSeconds:null,downloadMode:'',phase:'downloading',canResume:false});
     try{
-      const response=await this.request(m.url,10*60*1000);
-      if(!response.body)throw new Error('更新下载没有响应正文');
-      handle=await fs.open(temporary,'w');const hash=crypto.createHash('sha256');let size=0,lastProgress=-1;
-      for await(const chunk of response.body){size+=chunk.length;if(size>m.size)throw new Error('更新包大小超出清单，已停止下载');hash.update(chunk);await handle.writeFile(chunk);const progress=Math.floor(size/m.size*100);if(progress!==lastProgress){this.set({progress});lastProgress=progress;}}
-      await handle.close();handle=null;
-      if(size!==m.size||hash.digest('hex').toLowerCase()!==m.sha256.toLowerCase())throw new Error('更新包 SHA-256 校验失败，请重新下载');
-      await fs.rm(destination,{force:true});await fs.rename(temporary,destination);this.downloaded=destination;
+      const result=await downloadAsset({asset:m,directory:this.directory,request:(...args)=>this.request(...args),onProgress:p=>this.set({progress:Math.floor(p.loaded/p.total*100),downloadedBytes:p.loaded,totalBytes:p.total,bytesPerSecond:p.bytesPerSecond,remainingSeconds:p.remainingSeconds,downloadMode:p.mode,phase:p.phase})});
+      this.downloaded=result.file;
+      this.checkedAt=Date.now();
       return this.set({status:'ready',progress:100});
-    }catch(e){await handle?.close();await fs.rm(temporary,{force:true});return this.set({status:'error',error:e.message});}
+    }catch(e){this.downloaded=null;const canResume=this.state.downloadedBytes>0&&this.state.downloadedBytes<m.size;return this.set({status:'error',canResume,error:(e.name==='TimeoutError'?'下载超时，请重试':e.message)+(canResume?'；已保留下载进度，可继续下载':'')});}
   }
   async install(){
     if(this.state.status!=='ready'||!this.downloaded||!this.portableFile)throw new Error('请从免安装 EXE 运行，并先完成更新下载');

@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('tokenAtlas', {
   openExtension:()=>ipcRenderer.invoke('capture:extension'),
   onCapture:fn=>ipcRenderer.on('capture:updated',()=>fn()),
   updateStatus:()=>ipcRenderer.invoke('update:status'),
-  checkUpdate:()=>ipcRenderer.invoke('update:check'),
+  checkUpdate:options=>ipcRenderer.invoke('update:check',options),
   downloadUpdate:()=>ipcRenderer.invoke('update:download'),
   installUpdate:()=>ipcRenderer.invoke('update:install'),
   openRelease:()=>ipcRenderer.invoke('update:open-release'),

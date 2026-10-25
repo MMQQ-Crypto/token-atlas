@@ -53,7 +53,7 @@ app.whenReady().then(async () => {
   handle('scan', scan);
   handle('settings:get', () => settings);
   handle('update:status',()=>updater.status());
-  handle('update:check',()=>updater.check());
+  handle('update:check',options=>updater.check({force:options?.force===true}));
   handle('update:download',()=>updater.download());
   handle('update:install',()=>updater.install());
   handle('update:open-release',()=>shell.openExternal(`https://github.com/${updateConfig.repository}/releases/latest`));
