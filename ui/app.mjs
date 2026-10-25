@@ -2,13 +2,13 @@ import { COLORS, NAMES, modelKey, aggregate, compact, dayKey, dayOffset, selectR
 import { DOMESTIC_PROVIDERS, FOREIGN_PROVIDERS, providerFor, providerName, matchesProvider, providerUsage } from './providers.mjs';
 import {applicationUsage,scopedRecords,usageCounts} from './applications.mjs';
 import {reconcileUsage,reconciliationText} from './reconciliation.mjs';
-import {smoothPath} from './chart-path.mjs';
+import {smoothCurve} from './chart-path.mjs';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const escape = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const exact = n => n.toLocaleString('zh-CN');
 let snapshot={records:[],sources:[]}, settings={autoRefresh:true,enabled:{},paths:{}}, demo=false, days=7, source='', mode='daily', hiddenModels=new Set(), busy=false;
-let page='overview', provider='', providerRegion='all', toastTimer;
+let page='overview', provider='', providerRegion='all', toastTimer, trendHover=null;
 const bridge = window.tokenAtlas;
 const syncTitlebar=()=>document.documentElement.classList.toggle('native-titlebar',!!navigator.windowControlsOverlay?.visible);
 syncTitlebar();navigator.windowControlsOverlay?.addEventListener('geometrychange',syncTitlebar);
@@ -63,23 +63,59 @@ function renderHeatmap(all) {
   $('#activity-summary').textContent=`过去一年活跃 ${active} 天${provider?' · '+(provider==='domestic'?'国内模型':providerName(provider)):''}${source?' · '+NAMES[source]:''}`;
 }
 function renderTrend(selected, models) {
+  trendHover=null;
   $('#chart-legend').innerHTML=models.map(m=>`<button class="legend-item ${hiddenModels.has(m.key)?'off':''}" data-model="${escape(m.key)}" aria-pressed="${!hiddenModels.has(m.key)}"><i class="color-dot" style="background:${m.color}"></i>${escape(m.label)}<span class="muted">来源应用：${escape(NAMES[m.source]||m.source)}</span></button>`).join('');
   $('#trend-total').textContent=`所选时段 ${compact(selected.reduce((s,r)=>s+r.total,0))} tokens`;
   if(!selected.length){$('#trend-chart').innerHTML='<div class="chart-empty"><strong>这个时段还没有用量记录</strong><span>试试选择更长时段，或到「数据来源」检查日志目录。</span></div>';return;}
   let start=days?dayOffset(new Date(),1-days):dayOffset(selected[0].timestamp,0),end=dayOffset(new Date(),0);
   const dates=[];for(let d=start;d<=end;d=dayOffset(d,1))dates.push(dayKey(d));
-  const series=models.filter(m=>!hiddenModels.has(m.key)).map(m=>{const values=new Map();for(const r of selected)if(modelKey(r)===m.key){const k=dayKey(r.timestamp);values.set(k,(values.get(k)||0)+r.total);}return{...m,values};});
+  const series=models.filter(m=>!hiddenModels.has(m.key)).map(m=>{
+    const daily=new Map();
+    for(const r of selected)if(modelKey(r)===m.key){
+      const k=dayKey(r.timestamp),day=daily.get(k)||{input:0,output:0,cacheRead:0,cacheWrite:0,total:0,count:0};
+      for(const field of ['input','output','cacheRead','cacheWrite','total'])day[field]+=r[field];
+      day.count++;daily.set(k,day);
+    }
+    return {...m,daily};
+  });
   const width=1200,height=250,left=58,right=14,top=13,bottom=33,pw=width-left-right,ph=height-top-bottom;
-  let max=1;for(const m of series)for(const v of m.values.values())max=Math.max(max,v);
+  let max=1;for(const m of series)for(const v of m.daily.values())max=Math.max(max,v.total);
   max*=1.13;
   const x=i=>left+(dates.length>1?i/(dates.length-1):0.5)*pw,y=n=>top+ph-n/max*ph;
   let svg='';
   for(let i=0;i<4;i++){const val=max*i/3,yy=y(val);svg+=`<line x1="${left}" x2="${width-right}" y1="${yy}" y2="${yy}" stroke="#363638" stroke-dasharray="3 5"/><text x="${left-12}" y="${yy+4}" text-anchor="end" fill="#81818a" font-size="10">${escape(compact(Math.round(val)))}</text>`;}
   const count=Math.min(8,dates.length);
   for(let i=0;i<count;i++){const index=count===1?0:Math.round(i*(dates.length-1)/(count-1)),date=new Date(dates[index]+'T00:00:00');svg+=`<text x="${x(index)}" y="${height-7}" text-anchor="${i===0?'start':i===count-1?'end':'middle'}" fill="#8c8c95" font-size="11">${date.getMonth()+1}月${date.getDate()}日</text>`;}
-  for(const m of series){const points=dates.map((date,i)=>[x(i),y(m.values.get(date)||0)]);svg+=`<path class="trend-series" d="${smoothPath(points)}" fill="none" stroke="${m.color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;if(dates.length===1)svg+=`<circle cx="${x(0)}" cy="${y(m.values.get(dates[0])||0)}" r="4" fill="${m.color}"/>`;}
-  for(let i=0;i<dates.length;i++){const tips=`${dates[i]}\n`+series.map(m=>`${m.label}：${exact(m.values.get(dates[i])||0)}`).join('\n');const cellWidth=pw/Math.max(1,dates.length-1);svg+=`<rect x="${Math.max(left,x(i)-cellWidth/2)}" y="${top}" width="${Math.min(cellWidth,width-right-Math.max(left,x(i)-cellWidth/2))}" height="${ph}" fill="transparent" data-tooltip="${escape(tips)}"/>`;}
-  $('#trend-chart').innerHTML=`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="每日各模型 Token 趋势">${svg}</svg>`;
+  for(const m of series){
+    m.points=dates.map((date,i)=>[x(i),y(m.daily.get(date)?.total||0)]);m.curve=smoothCurve(m.points);
+    svg+=`<path class="trend-series" data-trend-key="${escape(m.key)}" d="${m.curve.path}" fill="none" stroke="${m.color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    if(dates.length===1)svg+=`<circle cx="${x(0)}" cy="${m.points[0][1]}" r="4" fill="${m.color}"/>`;
+  }
+  $('#trend-chart').innerHTML=`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="每日各模型 Token 趋势">${svg}</svg><span class="trend-hover-point" hidden aria-hidden="true"></span>`;
+  trendHover={series,dates,width,height,left,pw,marker:$('#trend-chart .trend-hover-point'),paths:$$('#trend-chart .trend-series')};
+}
+function clearTrendHover(){
+  if(!trendHover)return;
+  trendHover.marker.hidden=true;
+  trendHover.paths.forEach(p=>p.classList.remove('is-hovered'));
+}
+function showTrendTip(event){
+  clearTrendHover();
+  if(!trendHover){tooltip.hidden=true;return;}
+  const {series,dates,width,height,left,pw,marker,paths}=trendHover,rect=$('#trend-chart svg').getBoundingClientRect();
+  if(!rect.width||!rect.height){tooltip.hidden=true;return;}
+  const sx=rect.width/width,sy=rect.height/height,x=(event.clientX-rect.left)/sx,y=(event.clientY-rect.top)/sy;
+  let nearest=null,distance=9;
+  for(let i=0;i<series.length;i++){
+    const p=series[i].curve.at(x),d=Math.hypot((p.x-x)*sx,(p.y-y)*sy);
+    if(d<distance){distance=d;nearest=i;}
+  }
+  if(nearest===null){tooltip.hidden=true;return;}
+  const m=series[nearest],index=dates.length===1?0:Math.max(0,Math.min(dates.length-1,Math.round((x-left)/pw*(dates.length-1))));
+  const date=dates[index],day=m.daily.get(date)||{input:0,output:0,cacheRead:0,cacheWrite:0,total:0,count:0};
+  const text=`${date}\n${m.label}\n供应商：${providerName(providerFor(m.name,m.providerHint))}\n来源应用：${NAMES[m.source]||m.source}${m.system?'\n实际模型：未披露':''}\n当日记录用量：${exact(day.total)} tokens\n非缓存输入：${exact(day.input)}\n输出：${exact(day.output)}\n缓存读取：${exact(day.cacheRead)}\n缓存写入：${exact(day.cacheWrite)}\n用量记录：${exact(day.count)} 条\n所选时段合计：${exact(m.total)} tokens`;
+  marker.style.left=m.points[index][0]/width*100+'%';marker.style.top=m.points[index][1]/height*100+'%';marker.style.background=m.color;marker.hidden=false;
+  paths[nearest].classList.add('is-hovered');showTipText(text,event.clientX,event.clientY);
 }
 function renderDistribution(summary) {
   const total=summary.totals.total,radius=77;
@@ -260,13 +296,14 @@ $('#capture-toggle').addEventListener('click',async()=>{if(!bridge?.startCapture
 $('#capture-copy').addEventListener('click',async()=>{if(!bridge?.copyPairing)return;await bridge.copyPairing();toast('配对码已复制，只需粘贴到本机采集扩展');});
 $('#capture-extension').addEventListener('click',async()=>{if(!bridge?.openExtension)return;try{await bridge.openExtension();toast('扩展文件夹已打开，请在浏览器中加载');}catch(e){toast('打开失败：'+e.message);}});
 $('#capture-import').addEventListener('click',async()=>{if(!bridge?.importUsage)return;const button=$('#capture-import');button.disabled=true;try{const r=await bridge.importUsage();if(r){toast(r.found?`已新增 ${r.added} 条真实用量（其余为重复或缺少时间/标识的记录）`:'文件中未找到有效 usage 字段，未产生估算数据');await refresh();}}catch(e){toast('导入失败：'+e.message);}finally{button.disabled=false;}});
-function showTip(target,x,y){tooltip.textContent=target.dataset.tooltip;tooltip.hidden=false;tooltip.style.left=Math.min(window.innerWidth-tooltip.offsetWidth-12,Math.max(10,x+12))+'px';tooltip.style.top=Math.min(window.innerHeight-tooltip.offsetHeight-12,Math.max(10,y+15))+'px';}
-document.addEventListener('pointermove',e=>{focusedTooltip=null;const target=e.target.closest('[data-tooltip]');if(!target){tooltip.hidden=true;return;}showTip(target,e.clientX,e.clientY);});
-document.addEventListener('focusin',e=>{const target=e.target.closest('[data-tooltip]');if(target){focusedTooltip=target;const rect=target.getBoundingClientRect();showTip(target,rect.x,rect.bottom);}});
+function showTipText(text,x,y){tooltip.textContent=text;tooltip.hidden=false;tooltip.style.left=Math.min(window.innerWidth-tooltip.offsetWidth-12,Math.max(10,x+12))+'px';tooltip.style.top=Math.min(window.innerHeight-tooltip.offsetHeight-12,Math.max(10,y+15))+'px';}
+function showTip(target,x,y){showTipText(target.dataset.tooltip,x,y);}
+document.addEventListener('pointermove',e=>{focusedTooltip=null;if(e.target.closest('#trend-chart')){showTrendTip(e);return;}clearTrendHover();const target=e.target.closest('[data-tooltip]');if(!target){tooltip.hidden=true;return;}showTip(target,e.clientX,e.clientY);});
+document.addEventListener('focusin',e=>{clearTrendHover();const target=e.target.closest('[data-tooltip]');if(target){focusedTooltip=target;const rect=target.getBoundingClientRect();showTip(target,rect.x,rect.bottom);}});
 document.addEventListener('focusout',()=>{focusedTooltip=null;tooltip.hidden=true;});
-document.addEventListener('pointerleave',()=>tooltip.hidden=true);
-window.addEventListener('scroll',()=>{if(focusedTooltip&&document.activeElement===focusedTooltip){const rect=focusedTooltip.getBoundingClientRect();if(rect.bottom>0&&rect.top<innerHeight){showTip(focusedTooltip,rect.x,rect.bottom);return;}}tooltip.hidden=true;},{passive:true});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')tooltip.hidden=true;});
+document.addEventListener('pointerleave',()=>{clearTrendHover();tooltip.hidden=true;});
+window.addEventListener('scroll',()=>{clearTrendHover();if(focusedTooltip&&document.activeElement===focusedTooltip){const rect=focusedTooltip.getBoundingClientRect();if(rect.bottom>0&&rect.top<innerHeight){showTip(focusedTooltip,rect.x,rect.bottom);return;}}tooltip.hidden=true;},{passive:true});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){clearTrendHover();tooltip.hidden=true;}});
 render();
 try{if(bridge){settings=await bridge.getSettings();if(bridge.captureStatus)await updateCapture(await bridge.captureStatus());bridge.onCapture?.(()=>refresh());if(bridge.updateStatus)showUpdate(await bridge.updateStatus());bridge.onUpdate?.(showUpdate);}await refresh();}catch(e){toast('初始化失败：'+e.message);}
 setInterval(()=>{if(settings.autoRefresh&&!demo&&!document.hidden)refresh();},60000);
