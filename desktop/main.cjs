@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
   worker = new Worker(path.join(__dirname, 'scan-worker.cjs'));
   worker.on('error', () => { /* Pending requests surface the error in the UI. */ });
   Menu.setApplicationMenu(null);
-  win = new BrowserWindow({ width: 1440, height: 1020, minWidth: 960, minHeight: 720, show: !process.env.TOKEN_ATLAS_SMOKE,
+  win = new BrowserWindow({ width: 960, height: 680, minWidth: 960, minHeight: 600, show: !process.env.TOKEN_ATLAS_SMOKE,
     backgroundColor: '#151515', title: 'Token Atlas · AI 用量统计', icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
     ...(process.platform === 'win32' ? { titleBarStyle: 'hidden', titleBarOverlay: { color: '#151515', symbolColor: '#ffffff', height: 36 } } : {}),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
