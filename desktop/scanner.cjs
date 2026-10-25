@@ -6,6 +6,7 @@ const readline = require('node:readline');
 const { createZstdDecompress } = require('node:zlib');
 const { createCodexParser, createDeepSeekParser, parseClaude, parseCline, deduplicate } = require('./parsers.cjs');
 const {readZCode}=require('./zcode.cjs');
+const {parseWorkBuddy}=require('./workbuddy.cjs');
 function definitions() {
   const home = os.homedir(), roaming = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
   const editors = ['Code', 'Code - Insiders', 'Cursor', 'Windsurf'];
@@ -13,6 +14,7 @@ function definitions() {
   return [
     { id: 'deepseek_desktop', name: 'DeepSeek Harness 桌面端', detail: '自动读取 .dsh 压缩会话中的服务端结算 usage，含缓存与重试', paths: [path.join(process.env.DSH_HOME || path.join(home,'.dsh'),'sessions')], kind:'dsh' },
     { id: 'codex', name: 'Codex', detail: 'CLI 与桌面端会话日志，含子代理；不等于 ChatGPT 网页或客户端的用量', paths: [path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'sessions'), path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'archived_sessions')], kind: 'jsonl' },
+    { id:'workbuddy',name:'WorkBuddy',detail:'读取会话中的实际 Token，覆盖模型结算与工具调用；不是账号跨设备额度或积分余额',paths:process.env.WORKBUDDY_HOME?[path.join(process.env.WORKBUDDY_HOME,'projects')]:[path.join(home,'.workbuddy','projects'),path.join(home,'.workbuddy-ai','projects')],kind:'buddy' },
     { id: 'zcode', name: 'ZCode', detail: '只读逐请求用量数据库，按记录总数消除缓存重叠；累计范围限本机保留的记录', paths:[path.join(process.env.ZCODE_HOME||path.join(home,'.zcode'),'cli','db')],kind:'zcode' },
     { id: 'claude', name: 'Claude Code', detail: '项目会话与子代理用量', paths: [path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'projects')], kind: 'jsonl' },
     { id: 'cline', name: 'Cline', detail: 'VS Code / Cursor / Windsurf 扩展记录', paths: storage('saoudrizwan.claude-dev'), kind: 'cline' },
@@ -31,8 +33,8 @@ async function walk(dir, kind, errors, files = []) {
   catch (e) { if (e.code !== 'ENOENT') errors.push(`${dir}：${e.code || e.message}`); return files; }
   for (const e of entries) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) await walk(p, kind, errors, files);
-    else if (e.isFile() && (kind==='zcode'?e.name==='db.sqlite':kind === 'dsh' ? /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/.test(e.name) : kind === 'jsonl' ? e.name.endsWith('.jsonl') : /^(ui_messages|claude_messages)\.json$/.test(e.name))) files.push(p);
+    if (e.isDirectory()) {if(kind!=='buddy'||e.name!=='tool-results')await walk(p, kind, errors, files);}
+    else if (e.isFile() && (kind==='zcode'?e.name==='db.sqlite':kind === 'dsh' ? /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/.test(e.name) : kind === 'jsonl'||kind==='buddy' ? e.name.endsWith('.jsonl') : /^(ui_messages|claude_messages)\.json$/.test(e.name))) files.push(p);
   }
   return files;
 }
@@ -62,8 +64,9 @@ class Scanner {
             let malformed = 0;
             let diagnostics;
             if(def.kind==='zcode'){const result=readZCode(file);rows.push(...result.records);malformed=result.skipped;diagnostics=result.diagnostics;}
-            else if (def.kind === 'jsonl' || def.kind==='dsh') {
-              const parse = def.kind==='dsh' ? createDeepSeekParser(file) : def.id === 'codex' ? createCodexParser(file) : (obj, i) => parseClaude(obj, file, i);
+            else if (def.kind === 'jsonl' || def.kind==='dsh'||def.kind==='buddy') {
+              if(def.kind==='buddy')diagnostics={usageRows:0,acceptedRows:0,skippedRows:0};
+              const parse = def.kind==='buddy'?(obj,i)=>parseWorkBuddy(obj,file,i,diagnostics):def.kind==='dsh' ? createDeepSeekParser(file) : def.id === 'codex' ? createCodexParser(file) : (obj, i) => parseClaude(obj, file, i);
               const input=fs.createReadStream(file);
               const decoded=file.endsWith('.zstd')?input.pipe(createZstdDecompress()):input;
               if(decoded!==input)input.on('error',err=>decoded.destroy(err));
@@ -77,6 +80,7 @@ class Scanner {
                 const r = parse(obj, i++);
                 if (r) rows.push(r);
               }
+              if(def.kind==='buddy')malformed+=diagnostics.skippedRows;
             } else rows.push(...parseCline(JSON.parse(await fsp.readFile(file, 'utf8')), file, def.id));
             parsed = { fingerprint, records: rows, malformed, diagnostics };
             this.cache.set(file, parsed);
@@ -86,7 +90,7 @@ class Scanner {
             source.diagnostics||={};
             for(const [key,value] of Object.entries(parsed.diagnostics))source.diagnostics[key]=(source.diagnostics[key]||0)+value;
           }
-          if (parsed.malformed) source.errors.push(`${path.basename(file)}：跳过 ${parsed.malformed} 行${def.kind==='zcode'?'计数或时间无效的用量':'未完成或损坏的'}记录`);
+          if (parsed.malformed) source.errors.push(`${path.basename(file)}：跳过 ${parsed.malformed} 行${def.kind==='zcode'||def.kind==='buddy'?'格式、计数或时间无效的用量':'未完成或损坏的'}记录`);
         } catch (e) { source.errors.push(`${path.basename(file)}：${e.code || e.message}`); }
       }
       const unique = deduplicate(records);

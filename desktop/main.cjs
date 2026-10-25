@@ -7,7 +7,7 @@ const { CaptureStore } = require('./capture-store.cjs');
 const { CaptureServer } = require('./capture-server.cjs');
 const { Updater } = require('./updater.cjs');
 const updateConfig = require('./update-config.json');
-const sourceIds=['deepseek_desktop','codex','zcode','claude','cline','roo','kilo'];
+const sourceIds=['deepseek_desktop','codex','workbuddy','zcode','claude','cline','roo','kilo'];
 let captureStore,captureServer,updater;
 let win, worker, pending, snapshot, settings = { enabled: {}, paths: {}, autoRefresh: true };
 const entry = path.join(__dirname, '..', 'ui', 'index.html');

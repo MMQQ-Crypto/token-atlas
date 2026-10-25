@@ -8,7 +8,7 @@ export const DOMESTIC_PROVIDERS = [
   {id:'doubao',name:'豆包 / 字节跳动',models:'Doubao / Seed 系列',pattern:/^(?:doubao|seed)(?:\d|[-_.]|$)/i},
   {id:'ernie',name:'文心一言 / 百度',models:'ERNIE 系列',pattern:/^ernie(?:\d|[-_.]|$)/i},
   {id:'minimax',name:'MiniMax',models:'MiniMax 系列',pattern:/^minimax(?:\d|[-_.]|$)/i},
-  {id:'hunyuan',name:'腾讯混元',models:'Hunyuan 系列',pattern:/^hunyuan(?:\d|[-_.]|$)/i},
+  {id:'hunyuan',name:'腾讯混元',models:'Hunyuan / Hy 系列',pattern:/^(?:hunyuan(?:\d|[-_.]|$)|hy\d+(?:[-_.]|$))/i},
   {id:'spark',name:'讯飞星火',models:'Spark 系列',pattern:/^spark(?:\d|[-_.]|$)/i},
   {id:'stepfun',name:'阶跃星辰',models:'Step 系列',pattern:/^step(?:\d|[-_.]|$)/i},
   {id:'baichuan',name:'百川智能',models:'Baichuan 系列',pattern:/^baichuan(?:\d|[-_.]|$)/i},

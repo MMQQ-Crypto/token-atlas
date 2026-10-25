@@ -70,6 +70,12 @@ async function main(){
   assert.equal(await page.locator('#system-usage-section').isVisible(),true);assert.equal(await page.locator('#system-usage-table tr').count(),1);assert.ok((await page.locator('#system-usage-table').innerText()).includes('实际模型未披露'));await page.evaluate(()=>document.querySelector('#toast').hidden=true);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'model-system-separation.png'),fullPage:true});
   await clickAction('#audit-open');assert.ok((await page.locator('#audit-detail').innerText()).includes('其中系统审核：1 条 / 100 tokens'));await page.locator('#audit-close').click();await page.locator('#nav-back').click();
+  const buddyData={...data,sources:[{...data.sources[0],id:'workbuddy',name:'WorkBuddy',records:2,total:1500}],records:[make('wb-hy','workbuddy','hy3',0,1000),make('wb-glm','workbuddy','glm-5.3',0,500)]};
+  await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},buddyData);await page.locator('#refresh').click();
+  assert.equal(await page.locator('.application-card').count(),1);assert.equal(await stat(),'1,500');assert.equal(await page.locator('#source-add-type option[value="workbuddy"]').count(),1);
+  await page.locator('[data-application="workbuddy"]').click();assert.equal(await page.locator('#page-title').innerText(),'WorkBuddy 用量');
+  await page.locator('[data-provider-card="hunyuan"]').click();assert.equal(await page.locator('#model-table tr').count(),1);assert.ok((await page.locator('#model-table').innerText()).includes('hy3'));assert.ok((await page.locator('#model-table').innerText()).includes('来源应用：WorkBuddy'));
+  await page.locator('#nav-back').click();await page.locator('#nav-back').click();assert.equal(await page.locator('#nav-back').isHidden(),true);
   const curveValues=[5800,2200,1200,1700,4100,2500,8000];
   const curveData={...data,records:curveValues.map((total,i)=>make('curve-'+i,'codex','gpt-fixture',i-6,total))};
   await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},curveData);await page.locator('#refresh').click();await page.locator('[data-days="7"]').click();await page.setViewportSize({width:1440,height:1000});

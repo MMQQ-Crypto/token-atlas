@@ -1,5 +1,5 @@
 export const COLORS = ['#6b9df7', '#75c498', '#a18aee', '#edaa6a', '#df788b', '#71c3d5', '#c5bb78', '#a3a9b5'];
-export const NAMES = { deepseek_desktop:'DeepSeek Harness',browser:'网页响应采集',imported:'导入的真实用量',codex: 'Codex',zcode:'ZCode',claude: 'Claude Code', cline: 'Cline', roo: 'Roo Code', kilo: 'Kilo Code',cursor:'Cursor',windsurf:'Windsurf',qoder:'Qoder',trae:'TRAE',chatgpt:'ChatGPT' };
+export const NAMES = { deepseek_desktop:'DeepSeek Harness',browser:'网页响应采集',imported:'导入的真实用量',codex: 'Codex',workbuddy:'WorkBuddy',zcode:'ZCode',claude: 'Claude Code', cline: 'Cline', roo: 'Roo Code', kilo: 'Kilo Code',cursor:'Cursor',windsurf:'Windsurf',qoder:'Qoder',trae:'TRAE',chatgpt:'ChatGPT' };
 export const dayKey = value => { const d = new Date(value); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 export const modelKey=r=>`${r.source}::${r.model}::${r.providerHint||''}`;
 // This is a system review route in Codex logs, not a disclosed model name.

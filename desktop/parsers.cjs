@@ -68,7 +68,8 @@ function deduplicate(records) {
   for (const r of records) {
     // Streaming Claude entries may repeat the same message with a newer usage.
     const old = map.get(r.id);
-    if (!old || r.total >= old.total) map.set(r.id, r);
+    const buddyPriority=old&&r.source==='workbuddy'?(Number(!!r.usageSettled)-Number(!!old.usageSettled)||r.timestamp.localeCompare(old.timestamp)):0;
+    if (!old || buddyPriority>0 || buddyPriority===0&&r.total>=old.total) map.set(r.id, r);
   }
   return [...map.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }

@@ -40,7 +40,7 @@ export function reconciliationText(report){
     `其中系统审核：${n(report.system.records)} 条 / ${n(report.system.total)} tokens（已含在总量中；实际模型未披露）`,
     '',`累计记录起点：${when(report.coverage.first)}`,`累计记录终点：${when(report.coverage.last)}`,`时区：${report.scope.timeZone}`,
     '', '来源读取情况（整个来源）：',
-    ...report.sources.map(s=>`${s.name}：${s.enabled?'已启用':'已停用'} / ${n(s.files)} 个文件 / ${n(s.records)} 条记录 / ${n(s.total)} tokens / ${n(s.readWarnings)} 项读取提示${s.diagnostics?`\n  跳过 ${n(s.diagnostics.skippedRows)} 条，涉及数据库计算总数 ${n(s.diagnostics.skippedComputedTokens)} tokens；两类总数不同 ${n(s.diagnostics.totalsDisagreeRows)} 条`:''}`),
+    ...report.sources.map(s=>`${s.name}：${s.enabled?'已启用':'已停用'} / ${n(s.files)} 个文件 / ${n(s.records)} 条记录 / ${n(s.total)} tokens / ${n(s.readWarnings)} 项读取提示${s.diagnostics?('skippedComputedTokens'in s.diagnostics?`\n  跳过 ${n(s.diagnostics.skippedRows)} 条，涉及数据库计算总数 ${n(s.diagnostics.skippedComputedTokens)} tokens；两类总数不同 ${n(s.diagnostics.totalsDisagreeRows)} 条`:`\n  原始用量行 ${n(s.diagnostics.usageRows)} 条；接受 ${n(s.diagnostics.acceptedRows)} 条；跳过无效用量 ${n(s.diagnostics.skippedRows)} 条`):''}`),
     '',...report.notes
   ].join('\n');
 }
