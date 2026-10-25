@@ -122,8 +122,22 @@ function renderSources() {
   }).join('');
   $('#source-count').textContent=visible.length;
 }
+function renderProviderFilter() {
+  // Use all readable history for this application so a quiet day cannot hide it.
+  const available=new Set(records().filter(r=>!source||r.source===source).map(r=>providerFor(r.model,r.providerHint)));
+  const groups=[['国外 AI','foreign',FOREIGN_PROVIDERS],['国内 AI','domestic',DOMESTIC_PROVIDERS]]
+    .map(([label,region,items])=>({label,region,items:items.filter(p=>available.has(p.id))})).filter(g=>g.items.length);
+  const allowed=new Set(['',...groups.flatMap(g=>[g.region,...g.items.map(p=>p.id)]),...(available.has('unknown')?['unknown']:[])]);
+  if(!allowed.has(provider)){provider='';hiddenModels.clear();}
+  $('#provider-filter').innerHTML='<option value="">全部厂商</option>'
+    +groups.slice().reverse().map(g=>`<option value="${g.region}">${providerName(g.region)}</option>`).join('')
+    +groups.map(g=>`<optgroup label="${g.label}">${g.items.map(p=>`<option value="${p.id}">${escape(p.name)}</option>`).join('')}</optgroup>`).join('')
+    +(available.has('unknown')?'<option value="unknown">未识别厂商</option>':'');
+  $('#provider-filter').value=provider;
+}
 function render() {
   $('#tooltip').hidden=true;
+  renderProviderFilter();
   const vendorRecords=records().filter(r=>matchesProvider(r,provider));
   const all=vendorRecords.filter(r=>!source||r.source===source), selected=selectRecords(vendorRecords,source,days), summary=aggregate(selected);
   renderStats(selected);renderApplications();renderHeatmap(all);renderTrend(selected,summary.models);renderDistribution(summary);renderModels(selected);renderSources();
@@ -140,8 +154,6 @@ function render() {
   $('#range-caption').textContent=days?`${dayKey(dayOffset(new Date(),1-days))} — ${dayKey(new Date())}`:'全部历史记录';
   const present=applicationUsage(snapshot.sources,records()).map(a=>a.id);
   $('#source-filter').innerHTML='<option value="">全部应用</option>'+present.map(id=>`<option value="${id}" ${source===id?'selected':''}>${escape(NAMES[id]||id)}</option>`).join('');
-  $('#provider-filter').innerHTML='<option value="">全部厂商</option><option value="domestic">国内模型</option><option value="foreign">国外模型</option>'+[['国外 AI',FOREIGN_PROVIDERS],['国内 AI',DOMESTIC_PROVIDERS]].map(([label,items])=>`<optgroup label="${label}">${items.map(p=>`<option value="${p.id}">${escape(p.name)}</option>`).join('')}</optgroup>`).join('')+'<option value="unknown">未识别厂商</option>';
-  $('#provider-filter').value=provider;
   $('#provider-empty').hidden=!provider||!!all.length;
   $('#provider-empty').textContent=`${provider==='domestic'?'国内模型':providerName(provider)}：当前条件下尚未采集到真实用量。可在「数据来源」连接网页采集或导入带 usage 的响应记录；缺少用量字段的数据不计数。`;
   $('#sync-status').textContent=demo?'示例数据 · 自动刷新已暂停':snapshot.updatedAt?`上次读取 ${new Date(snapshot.updatedAt).toLocaleTimeString('zh-CN')} · ${exact(snapshot.records.length)} 条用量记录${settings.autoRefresh?' · 每分钟刷新':''}`:'尚未读取本地记录';

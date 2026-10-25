@@ -13,6 +13,14 @@ async function main(){
   await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>document.querySelector('#sync-status').textContent.includes('条用量记录'));
   async function clickAction(selector){await page.locator('#more-actions > summary').click();await page.locator(selector).click();assert.equal(await page.locator('#more-actions').getAttribute('open'),null);}
   const stat=()=>page.locator('.stat-value').first().innerText();
+  const vendors=()=>page.locator('#provider-filter option').evaluateAll(options=>options.map(o=>o.value));
+  assert.deepEqual(await vendors(),['','domestic','foreign','openai','anthropic','zhipu']);
+  await page.locator('#provider-filter').selectOption('zhipu');assert.equal(await stat(),'1,000');
+  await page.locator('#source-filter').selectOption('codex');assert.deepEqual(await vendors(),['','foreign','openai']);assert.equal(await page.locator('#provider-filter').inputValue(),'');assert.equal(await stat(),'100');
+  await page.locator('#source-filter').selectOption('zcode');assert.deepEqual(await vendors(),['','domestic','foreign','anthropic','zhipu']);
+  await page.locator('[data-days="1"]').click();assert.ok((await vendors()).includes('anthropic'));await page.locator('#provider-filter').selectOption('anthropic');assert.equal(await stat(),'0');
+  await page.locator('[data-days="7"]').click();assert.equal(await page.locator('#provider-filter').inputValue(),'anthropic');assert.equal(await stat(),'500');
+  await page.locator('#source-filter').selectOption('');await page.locator('#provider-filter').selectOption('');
   assert.equal(await page.locator('.application-card').count(),2);assert.equal(await page.locator('[data-application="claude"]').count(),0);assert.equal(await stat(),'1,600');
   assert.equal(await page.locator('[data-provider-card="openai"] h3').innerText(),'OpenAI');assert.ok((await page.locator('[data-provider-card="openai"]').innerText()).includes('来源：Codex'));
   assert.equal(await page.locator('#nav-back').isHidden(),true);
@@ -72,6 +80,7 @@ async function main(){
   await clickAction('#audit-open');assert.ok((await page.locator('#audit-detail').innerText()).includes('其中系统审核：1 条 / 100 tokens'));await page.locator('#audit-close').click();await page.locator('#nav-back').click();
   const buddyData={...data,sources:[{...data.sources[0],id:'workbuddy',name:'WorkBuddy',records:2,total:1500}],records:[make('wb-hy','workbuddy','hy3',0,1000),make('wb-glm','workbuddy','glm-5.3',0,500)]};
   await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},buddyData);await page.locator('#refresh').click();
+  assert.deepEqual(await vendors(),['','domestic','zhipu','hunyuan']);
   assert.equal(await page.locator('.application-card').count(),1);assert.equal(await stat(),'1,500');assert.equal(await page.locator('#source-add-type option[value="workbuddy"]').count(),1);
   await page.locator('[data-application="workbuddy"]').click();assert.equal(await page.locator('#page-title').innerText(),'WorkBuddy 用量');
   await page.locator('[data-provider-card="hunyuan"]').click();assert.equal(await page.locator('#model-table tr').count(),1);assert.ok((await page.locator('#model-table').innerText()).includes('hy3'));assert.ok((await page.locator('#model-table').innerText()).includes('来源应用：WorkBuddy'));
@@ -99,9 +108,13 @@ async function main(){
   assert.deepEqual(await page.locator('.trend-series').evaluate(checkGeometry,zeroValues),{cubic:true,finite:true,bounded:true,forward:true,faithful:true});
   await page.locator('[data-days="1"]').click();assert.equal(await page.locator('#trend-chart circle').count(),1);assert.ok(!(await page.locator('.trend-series').getAttribute('d')).includes(' C'));
   for(const viewport of [{width:960,height:680},{width:390,height:844}]){await page.setViewportSize(viewport);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.locator('#more-actions > summary').click();assert.equal(await page.locator('#audit-open').isVisible(),true);await page.keyboard.press('Escape');}
+  const unknownData={...data,records:[make('unknown','codex','private-model',0,100),{...make('hint','codex','未知模型',0,200),providerHint:'google'}]};
+  await page.evaluate(data=>{window.tokenAtlas.scan=async()=>data;},unknownData);await page.locator('#refresh').click();assert.deepEqual(await vendors(),['','foreign','google','unknown']);
+  await page.locator('#provider-filter').selectOption('unknown');assert.equal(await stat(),'100');
   await page.evaluate(()=>{window.tokenAtlas.scan=async()=>({records:[],sources:[],updatedAt:new Date().toISOString()});});await page.locator('#refresh').click();assert.equal(await page.locator('.donut-segment').count(),0);assert.equal(await page.locator('#tooltip').isHidden(),true);
+  assert.deepEqual(await vendors(),['']);assert.equal(await page.locator('#provider-filter').inputValue(),'');assert.equal(await stat(),'0');assert.equal(await page.locator('#nav-back').isHidden(),true);
   assert.equal(await page.locator('#system-usage-section').isHidden(),true);assert.equal(await page.locator('#system-usage-table tr').count(),0);
-  assert.deepEqual(errors,[]);console.log('PASS: smooth curve follows each daily value, stays within neighboring values, preserves zero and single-day cases; back navigation; donut hover; exact/scoped totals; export and audit; update interaction; empty chart; 960px layout.');
+  assert.deepEqual(errors,[]);console.log('PASS: only observed providers appear; application/refresh changes clear unavailable suppliers; date changes retain historical suppliers; origin hints/unknown/empty records; smooth trend; back navigation; donut hover; scoped totals; export and audit; updates; compact layout.');
  }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
