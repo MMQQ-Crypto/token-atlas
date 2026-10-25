@@ -37,10 +37,16 @@ test('Update ranges: a restarted download resumes partial bytes and skips comple
     else res.end(payload.subarray(start,end+1));
   },async({download,directory,asset})=>{
     await assert.rejects(download());assert.equal(await verifyFile(path.join(directory,`Token-Atlas-${asset.version}-Windows-x64.exe`),asset),false);
+    const chunks=path.join(directory,`Token-Atlas-${asset.version}-Windows-x64.exe.${asset.sha256.slice(0,16)}.chunks`);
+    const saved=await Promise.all(Array.from({length:4},(_,i)=>fs.stat(path.join(chunks,`${i}.part`)).then(s=>s.size).catch(e=>{if(e.code==='ENOENT')return 0;throw e;})));
+    // Aborting one stream can interrupt a sibling before its disk write finishes.
+    // A retry must follow persisted lengths, not assumed network completion order.
+    const expected=saved.flatMap((offset,i)=>{const end=Math.min(payload.length,(i+1)*span)-1;return offset<end-i*span+1?[[i*span+offset,end]]:[];});
+    assert.ok(saved.some((offset,i)=>offset===Math.min(span,payload.length-i*span)),'fixture retains a completed chunk');
     const before=requests.length;interrupted=false;const progress=[];
     const result=await download({onProgress:p=>progress.push(p)});
     assert.equal(result.mode,'resume');assert.ok(progress[0].loaded>0);
-    assert.deepEqual(requests.slice(before),[[span+4096,2*span-1]]);
+    assert.deepEqual(requests.slice(before).sort((a,b)=>a[0]-b[0]),expected);
     assert.ok((await fs.readFile(result.file)).equals(payload));
   });
 });
